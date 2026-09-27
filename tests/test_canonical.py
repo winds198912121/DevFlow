@@ -61,3 +61,10 @@ def test_canonical_sha256_returns_sha256_prefixed_hex():
     hex_part = out.split(":", 1)[1]
     assert len(hex_part) == 64
     int(hex_part, 16)  # parses as hex
+
+
+def test_canonical_sha256_empty_bytes_known_answer():
+    # sha256("") is the well-known empty-input digest; this pins the prefix
+    # format and protects against accidental drift in canonical_bytes("").
+    expected = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    assert canonical_sha256(b"") == expected
