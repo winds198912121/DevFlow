@@ -78,3 +78,14 @@ def test_key_file_mode_is_0600_on_posix(tmp_path):
     test_key = tmp_path / "var" / "secrets" / "harness.key"
     mode = test_key.stat().st_mode & 0o777
     assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+
+def test_wrong_size_key_file_raises_invalid_key_file(tmp_path, monkeypatch):
+    # 32 bytes — right seed size, no public-key half; should be rejected.
+    test_key = tmp_path / "var" / "secrets" / "harness.key"
+    test_key.parent.mkdir(parents=True)
+    test_key.write_bytes(b"\x00" * 32)
+    monkeypatch.setattr(harness_secrets, "KEY_PATH", test_key)
+    monkeypatch.setattr(harness_signing, "_keypair", None)
+    with pytest.raises(harness_secrets.InvalidKeyFile):
+        harness_signing.sign({"a": 1})

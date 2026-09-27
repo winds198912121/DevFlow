@@ -26,7 +26,6 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
-from cryptography.hazmat.primitives import serialization
 
 # Project root: the directory containing pyproject.toml.
 # This file is at harness/secrets.py, so the root is the parent's parent.
@@ -69,7 +68,8 @@ def write_key(private_key: Ed25519PrivateKey) -> None:
 
 
 def read_key() -> Ed25519PrivateKey:
-    """Read the private key from KEY_PATH. Raises InvalidKeyFile on size mismatch."""
+    """Read the private key from KEY_PATH. Raises InvalidKeyFile on size mismatch
+    or on a seed that Ed25519 cannot parse (malformed 32 bytes)."""
     raw = KEY_PATH.read_bytes()
     if len(raw) != KEY_FILE_LEN:
         raise InvalidKeyFile(
@@ -77,8 +77,12 @@ def read_key() -> Ed25519PrivateKey:
             f"got {len(raw)}"
         )
     seed = raw[:SEED_LEN]
-    # Reconstruct the private key from the raw seed.
-    return Ed25519PrivateKey.from_private_bytes(seed)
+    try:
+        return Ed25519PrivateKey.from_private_bytes(seed)
+    except (ValueError, TypeError) as e:
+        # cryptography raises ValueError for malformed seeds (right size, wrong
+        # bytes). Wrap so callers see a single exception type.
+        raise InvalidKeyFile(f"{KEY_PATH}: malformed seed ({e})") from e
 
 
 def load_or_generate() -> tuple[Ed25519PrivateKey, Ed25519PublicKey]:
