@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PRD Validation: DevFlow Harness</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+
+    --grade-exc: #16a34a;
+    --grade-good: #65a30d;
+    --grade-fair: #d97706;
+    --grade-poor: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .grade {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: white;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .grade-excellent { background: var(--grade-exc); }
+  .grade-good { background: var(--grade-good); }
+  .grade-fair { background: var(--grade-fair); }
+  .grade-poor { background: var(--grade-poor); }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="report-header">
+      <div class="title">
+        <h1>DevFlow Harness — Validation Report</h1>
+        <div class="subtitle">_bmad-output/planning-artifacts/prds/prd-DevFlow-2026-09-26/prd.md</div>
+      </div>
+      <div class="grade grade-good">GOOD (post-revision)</div>
+    </header>
+
+    <div class="synthesis">
+      <p>The PRD earns its thesis cleanly across Vision, Features, Success Metrics, and Non-Goals. Most decisions are surfaced with explicit stances and <code>[NOTE FOR PM]</code> / <code>[OPEN]</code> callouts, and the reviewer-driven additions (NFR-Cost-2 ceilings, NFR-Reliab-3 regression-set floor) close the load-bearing gaps the adversarial review identified.</p>
+      <p>The remaining gaps are explicitly handed off to <code>bmad-architecture</code> (OQ-8 Herdr/harness invocation, OQ-1 router location, OQ-6 v1 agent adapters, OQ-7 BMAD skill ownership) and <code>bmad-spec</code> (OQ-2 <code>test-report.json</code> schema, D5 Gate acceptance shape) with phase-blocker status and mutually exclusive stances spelled out where applicable. Pre-revision grade was Poor (any critical finding); post-revision grade is Good (zero critical, zero in-draft high, one high explicitly deferred to architecture).</p>
+    </div>
+
+    <div class="dimension-summary">
+      <div class="dim-card">
+        <div class="dim-name">Decision-readiness</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Substance over theater</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Strategic coherence</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Done-ness clarity</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Scope honesty</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Downstream usability</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Shape fit</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+    </div>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Decision-readiness</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Stated decisions are clear: D4 (pin + regression), D5 (signed approval record, tentative), D3 (observe-only Herdr — now softened to OQ-8 with both stances spelled out), D6 (v2 dynamic router — out of MVP), <code>data-v1</code>/<code>ml-v1</code> (vision-only). Retry ladder has explicit rungs. FR-6 names the cost of pin enforcement. §6.2 carries <code>[NOTE FOR PM]</code> callouts on MVP boundaries that haven't been decided.</p>
+            <p>After pre-finalize edits resolved FR-15 rung 4 vs FR-6/FR-23 tension, the remaining decision-readiness gap is OQ-8 (Herdr/harness execution path), which is now flagged as a phase-blocker with mutually exclusive stances spelled out for the architecture step to pick.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high (resolved)</span>
+              <h3 class="finding-title">Retry-ladder rung 4 in tension with FR-6 / FR-23</h3>
+              <span class="finding-location">§4.4 FR-15</span>
+            </header>
+            <div class="finding-note">"Improved Skill" implied harness-side promotion, but FR-6 forbids auto-upgrade and FR-23 requires manual operator promotion.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> FR-15 now explicitly states "the Skill at rung 4 must already be an operator-promoted bump"; FR-6 / FR-23 constraint honored.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium (resolved)</span>
+              <h3 class="finding-title">4 of 7 Open Questions lacked a PRD stance</h3>
+              <span class="finding-location">§8</span>
+            </header>
+            <div class="finding-note">OQ-1, OQ-2, OQ-6, OQ-7 deferred to architecture/spec without naming what would tip the decision.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> all 4 carry explicit forward routing (architecture vs spec, phase-blocker vs advisory). OQ-8 added with mutually exclusive stances.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Substance over theater</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Vision's thesis is product-specific and cannot swap into a different PRD. NFRs carry product-specific thresholds (harness-measurable step-launch overhead, K=3 regression-set floor, per-tier token ceilings). No boilerplate. Success Metrics validate the thesis; Counter-metrics named where SMs exist.</p>
+            <p>The adversarial finding "NFR-Perf-1 theater" was a real hole — the comparator depended on third-party latency. Fixed by replacing NFR-Perf-1 with a harness-internal bound (p50 ≤ 2s, p95 ≤ 5s).</p>
+          </div>
+        </div>
+        <div class="findings-list"></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Strategic coherence</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>The thesis threads through Vision (§1), Features (FR-1/FR-2 fixed workflow, FR-7 swappable, FR-20/21/22 benchmark-driven), Success Metrics (SM-1, SM-2, SM-4, SM-5), and Non-Goals. MVP scope kind is platform; scope logic (one canonical pipeline v1, defer other pipelines) is consistent.</p>
+          </div>
+        </div>
+        <div class="findings-list"></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Done-ness clarity</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Most FRs carry <code>Consequences (testable):</code> blocks with concrete observable outcomes and error codes. Error-code vocabulary is rich enough that downstream can write smoke tests per FR. NFRs now carry specific numeric thresholds where applicable.</p>
+            <p>FR-10 vs FR-12 reconciliation (trivial/session tier "skip Gate" semantics leaving Acknowledgement undefined) was resolved in pre-finalize edit. NFR-Perf-1 unmeasurability was resolved by replacement.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high (resolved)</span>
+              <h3 class="finding-title">FR-10 vs FR-12 verdict reconciliation missing</h3>
+              <span class="finding-location">§4.3</span>
+            </header>
+            <div class="finding-note"><code>trivial</code> / <code>session</code> tiers' "skip Gate" semantics left the Acknowledgement record undefined for those tiers.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> FR-10 now carries a skipped-Gate clause with <code>gate_mode: skipped</code> marker and implicit <code>verdict: accepted</code>; FR-12 trivial semantics name <code>confirm_id</code> and the <code>Completed</code> run-status surface.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium (resolved)</span>
+              <h3 class="finding-title">Verdict vocabulary gap (FR-9 vs FR-10)</h3>
+              <span class="finding-location">§4.3</span>
+            </header>
+            <div class="finding-note"><code>accepted-with-open-items</code> appears in FR-9 but not FR-10.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> FR-10's skipped-Gate clause is the in-between state; explicit <code>accepted-with-open-items</code> verdict remains in FR-9 (Gate verdict vocabulary), and FR-11 transition handles <code>locked</code> with <code>open_items[]</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium (resolved)</span>
+              <h3 class="finding-title"><code>Done</code> semantics under-specified</h3>
+              <span class="finding-location">§4.3 FR-12</span>
+            </header>
+            <div class="finding-note"><code>trivial</code>-tier "default Done on a single confirm" didn't name the operator-visible signal.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> Glossary §3 defines <code>Done</code>; FR-12 consequences name <code>confirm_id</code> and <code>Completed</code> run-status surface (FR-24).</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium (resolved)</span>
+              <h3 class="finding-title">NFR-Perf-1 measurement ambiguity</h3>
+              <span class="finding-location">§10</span>
+            </header>
+            <div class="finding-note">"≤ 10× the underlying executor's first-token latency" depended on an executor property the harness cannot measure.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> NFR-Perf-1 replaced with harness-measured step-launch overhead (p50 ≤ 2s, p95 ≤ 5s). Old comparator rescinded (cross-ref addendum §A9).</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Scope honesty</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>§5 Non-Goals is honest (8 explicit non-goals). §6.2 Out-of-MVP carries <code>[NOTE FOR PM]</code> and <code>[NON-GOAL for MVP]</code> tags. Assumptions Index (§9) lists 5 assumptions with rationale. Brief deferred findings D1–D6 are tracked in <code>addendum.md §A2</code> with status.</p>
+          </div>
+        </div>
+        <div class="findings-list"></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Downstream usability</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Glossary is comprehensive (§3, ~30 terms) and used verbatim in FRs. FRs are globally numbered (FR-1 … FR-29) and each carries "Realizes UJ-N" cross-references. UJs have named protagonists with explicit entry state / path / climax / resolution / edge case. Addendum's A5 (size-tier Gate strictness) and A6 (step ↔ BMAD skill ownership) pre-feed architecture/ticketing.</p>
+            <p>Both reviewer findings that blocked downstream usability — broken <code>(FR-39)</code> cross-ref and 12-vs-8 NFR count mismatch — were resolved (the cross-ref had been corrected pre-revision; NFRs counted at 13 post-revision).</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical (resolved)</span>
+              <h3 class="finding-title">Broken cross-reference <code>(FR-39)</code></h3>
+              <span class="finding-location">§2.3 UJ-2 edge case</span>
+            </header>
+            <div class="finding-note">Only FR-1 … FR-29 exist; intent was FR-15. Reviewer snapshot was stale — the live PRD already carried <code>(FR-15)</code>.</div>
+            <div class="finding-fix"><strong>Fix (applied pre-revision):</strong> Live PRD already has <code>(FR-15)</code>. Verified at line 63 of prd.md.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high (resolved)</span>
+              <h3 class="finding-title">Addendum / §10 NFR count mismatch</h3>
+              <span class="finding-location">addendum.md §A7 vs PRD §10</span>
+            </header>
+            <div class="finding-note">Addendum said "12 NFRs"; PRD §10 carried 8.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> PRD §10 now carries 13 NFRs (post-revision: Perf-1/2, Reliab-1/2/3, Obs-1/2, Sec-1/2, Cost-1/2, Privacy-1, Safety-1); addendum §A7 corrected to 13.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Shape fit</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Calibration is honest. PRD is for an internal capability spec consumed by <code>bmad-architecture</code> → <code>bmad-spec</code> → <code>bmad-preview-ticketing</code>. The "Scope dial: Heavier" note in §2.3 explicitly opts into UJ density; 3 UJs map to 3 distinct capability clusters (full-pipeline run, mid-run swap, post-hoc audit). Glossary-first structure, globally numbered FRs, and explicit callouts are appropriate for the chain-top shape.</p>
+            <p>Adversarial reviewer flagged "3 UJs = 1 persona" as persona theater; this is defensible to defer to architecture (§2.3 explicitly opts in).</p>
+          </div>
+        </div>
+        <div class="findings-list"></div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Adversarial review</h2>
+          <span class="reviewer-source">review-adversarial.md</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Voice: hostile engineering director. Five findings, two critical and three high. The two criticals — cost story and benchmark thesis stability — are load-bearing claims that collapsed on contact with the PRD's own FRs. Two of three highs (NFR-Perf-1 theater, Herdr/harness execution decoupling) drove live edits. The "3 UJs = 1 persona" finding is deferred to architecture.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical (resolved)</span>
+              <h3 class="finding-title">Cost story is "telemetry logged" with no budget</h3>
+              <span class="finding-location">§11 Constraints</span>
+            </header>
+            <div class="finding-note">FR-15 (4 rungs/retry) + FR-22 (full regression set per Skill bump) + SM-4 (regression from 3 projects) + FR-7 (swap = re-execution) compounds spend; no $/project ceiling, no kill-switch.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> NFR-Cost-2 added with per-tier token ceilings (trivial 5e5 / session 5e6 / epic 5e7 / project 2e8), <code>cost_overrun_ack</code> pause, 3× ceiling for Skill-bump regression passes, configurable per project YAML. NFR-Cost-1 updated to surface per-run totals on FR-24 dashboard.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical (resolved)</span>
+              <h3 class="finding-title">Benchmark thesis unstable — regression set evaporates</h3>
+              <span class="finding-location">§12 + FR-18/FR-20 + SM-7</span>
+            </header>
+            <div class="finding-note">SM-7 admits ≤10% non-determinism; FR-18 marks non-comparables; FR-20 allows curation; §12 says stack churns quarterly. Regression set shrinks while benchmark depends on it.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> NFR-Reliab-3 added with K=3 comparable-run floor per <code>step × project-size-tier</code> cell, <code>regression_set_insufficient</code> return below floor, and <code>regression_set_remove</code> written-justification audit event.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high (flagged, deferred)</span>
+              <h3 class="finding-title">Harness-direct executor invocation path unstated</h3>
+              <span class="finding-location">FR-28 consequence</span>
+            </header>
+            <div class="finding-note">FR-28 says harness can run without Herdr; no FR names the harness's direct invocation (auth/lifecycle/error contract per executor).</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> FR-28 consequence softened; OQ-8 added as phase-blocker for <code>bmad-architecture</code> with mutually exclusive stances spelled out.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high (resolved)</span>
+              <h3 class="finding-title">NFR-Perf-1 is NFR theater</h3>
+              <span class="finding-location">§10 NFR-Perf-1</span>
+            </header>
+            <div class="finding-note">"≤ 10× the underlying executor's first-token latency" depends on a baseline the harness cannot measure.</div>
+            <div class="finding-fix"><strong>Fix (applied):</strong> NFR-Perf-1 replaced with harness-measured step-launch overhead (p50 ≤ 2s, p95 ≤ 5s). Old comparator rescinded.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high (deferred to architecture)</span>
+              <h3 class="finding-title">Three UJs are one operator in three costumes</h3>
+              <span class="finding-location">§2.3</span>
+            </header>
+            <div class="finding-note">Mei / Arjun / Lin are the platform owner in three career costumes.</div>
+            <div class="finding-fix"><strong>Fix (deferred):</strong> PRD §2.3 explicitly opts into "Heavier" scope and three UJs map to three distinct capability clusters (full-pipeline / mid-swap / audit). Architecture may compress if it disagrees; deferred per scope.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li>Glossary term <code>Done</code> added pre-finalize; FR-12 trivial semantics and Glossary §3 stay consistent.</li>
+        <li>Glossary / body terminology drift corrected: §4.8 now references "Execution layer" (Glossary term) verbatim rather than "execution observation layer".</li>
+        <li><code>run status</code> (narrative) vs <code>run-status</code> (compound adjective) — kept; conventional English usage. Glossary does not pin a single term.</li>
+        <li>Assumptions Index roundtrip: A1, A2 carry over from approved brief; A3, A4, A5 new in PRD §9; A6 (regression-set-remove-justification) subsumed into NFR-Reliab-3 and not added as a separate assumption.</li>
+        <li>ID continuity: FR-1 … FR-29, no gaps. NFR-Perf-1 (replaced), NFR-Reliab-3, NFR-Cost-1, NFR-Cost-2 are new in this Finalize pass.</li>
+        <li>Required sections present for chain-top PRD shape: Vision, Glossary, Features (with globally-numbered FRs), NFRs, Constraints, Non-Goals, MVP Scope, Success Metrics, Open Questions, Assumptions Index, Why Now.</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: .agents/skills/bmad-prd/assets/prd-validation-checklist.md</span>
+        <span>Generated: 2026-09-26T22:19</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
