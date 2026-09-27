@@ -28,3 +28,9 @@ _bmad/*.log
 # Resources not needed in git (large, not part of harness code)
 *.docx
 *.xlsx
+
+# Harness-generated runtime artifacts (first-run creates; not source).
+# The canonical stores (var/harness.sqlite, var/herdr_mirror.sqlite) and the
+# signing key (var/secrets/harness.key) are produced at runtime; commits only
+# keep the empty skeleton (.gitkeep). Use gitkeep pattern, not full gitignore.
+var/secrets/harness.key
