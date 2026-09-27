@@ -1,0 +1,126 @@
+# tickets.toml — epic-error-benchmark-skill's agreed children, in build order.
+# CAP-4 (error store + retry ladder) + CAP-5 (benchmark) + CAP-6 (skill bump gate).
+# 10 stories; tracer bullet is story 10 (synthetic failure → retry ladder advances → bench returns insufficient).
+
+[[entry]]
+id = 1
+type = "story"
+title = "Error store schema + append-only write API"
+description = "Adds the error_records table to var/harness.sqlite (schema_version=2 migration per Epic 2 story 1's harness.migrate). Implements harness.error_store.append(record) -> record_id with the schema FR-13 / PRD addendum §5: record_id (ULID), project_id, run_id, step, attempt, category, root_cause[], correction[], retry[], result, recorded_at, hash. Records are immutable post-write (FR-14 / AD-4): edit returns error_store_immutable. Indexes on (project_id, run_id, step) and (category) for FR-16."
+verify = "A test asserts append returns a ULID and persists the record; a test asserts edit returns error_store_immutable; a test asserts a read filtered by (project_id=P1, step=coding) returns the matching record deterministically; a test asserts append with category: not_in_closed_list returns invalid_error_category."
+covers = ["FR-13", "FR-14", "AD-4", "PRD-addendum-§5"]
+after = []
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-4", "spec-devflow/failure-modes.md (12 closed categories)"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Run Event Log schema + append-only write API"
+description = "Adds the run_events table to var/harness.sqlite (schema_version=3 migration). Implements harness.event_log.append(event) -> event_id with the schema NFR-Obs-1 / AD-14: event_id (ULID), project_id, run_id, step, executor_tuple, executor_tuple_hash, started_at, ended_at, outcome, gate_mode (enforced|skipped|cost_paused), cost_tokens_in, cost_tokens_out, confirm_id?, error_record_id?, acknowledgement_id?. Run state is reconstructable from this log alone (NFR-Reliab-2)."
+verify = "A test asserts append writes the full event with all required fields; a test asserts a re-emitted event for the same (project_id, run_id, step, attempt) gets a new event_id (events are append-only, no upsert); a test asserts a query by (project_id, run_id, step) returns events in append order; a test asserts the gate_mode enum is enforced at write time."
+covers = ["NFR-Obs-1", "NFR-Obs-2", "NFR-Reliab-2", "AD-14"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-14"]
+
+[[entry]]
+id = 3
+type = "story"
+title = "Retry ladder engine — rungs 1, 2, 5 (no promoted Skill path yet)"
+description = "Implements harness.retry_ladder.advance(step_state) -> next_rung_or_pause. Rung order per FR-15: (1) same Agent + same LLM + same Skill; (2) same Agent + different LLM; (3) different Agent + better LLM (better = top non-self LLM by regression-set recommendation; falls back to any non-self LLM when no regression data — story 4 lays down the recommendation query); (4) different Agent + different LLM + promoted Skill (deferred to story 5); (5) human intervention (operator-initiated, never auto). Every rung attempt is appended to the error record's retry[] array. Rung 4 returns skill_not_promoted and pauses until story 5 ships."
+verify = "A test asserts a rung-1 FAIL advances to rung 2 with the same Agent and a different LLM from the executor pool; a test asserts a rung-3 FAIL without regression data falls back to any non-self LLM; a test asserts every rung attempt is appended to retry[] with rung_number, executor_tuple, result, timestamp; a test asserts rung 4 returns skill_not_promoted and pauses (story 5 closes this)."
+covers = ["FR-15", "CAP-4"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["spec-devflow/failure-modes.md (5-rung ladder)", "ARCHITECTURE-SPINE.md (AD pending on rung-4)"]
+
+[[entry]]
+id = 4
+type = "story"
+title = "Regression set + bench <step> query + NFR-Reliab-3 K=3 floor"
+description = "Adds the regression_set_runs and benchmark_runs tables (schema_version=4). Implements harness.regression_set.add(run_event_id) — append-only (AD-7); harness.bench.query(step, project_size_tier, artifact_contract_version?) -> recommendation or refusal. Per NFR-Reliab-3: returns regression_set_insufficient when comparable-run count for the (step × project_size_tier) cell is below K=3 (default K=3, configurable per cell). Per FR-18: cross-tier or cross-contract mixing returns non_comparable_set; raw success rate is NOT the primary metric — bench ranks by recorded metric (default: acceptance_coverage.fr_passed / fr_total over comparable runs; metric definition recorded with each benchmark run per FR-21)."
+verify = "A test asserts regression_set.add is append-only (re-add with same run_event_id is a no-op); a test asserts bench with K comparable runs returns a recommendation tuple with contributing runs named; a test asserts bench with K-1 comparable runs returns regression_set_insufficient; a test asserts bench mixing session and epic runs without explicit override returns non_comparable_set; a test asserts the metric definition is recorded on the benchmark_run row."
+covers = ["FR-18", "FR-20", "FR-21", "NFR-Reliab-3", "AD-7"]
+after = [2]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-7", "spec-devflow/glossary.md (Regression set, Bench query)"]
+
+[[entry]]
+id = 5
+type = "story"
+title = "Skill Bump Registry — register + promote + FR-6 pin enforcement"
+description = "Adds the skill_bumps table (schema_version=5). Implements harness.skill_bump_registry.register(skill_name, new_version) -> bump_id which records pending_promotion state and triggers trigger_skill_bump_regression (the bench query of story 4 with the new pin applied — Epic 4 owns the dashboard write path; this story is the harness handler). Implements promote(bump_id, regression_run_id) which transitions pending_promotion -> promoted only if regression_run_id.result == pass (else skill_regression_missing or skill_regression_failed per AD-6). Per FR-6: project YAMLs with unpinned skills fail at load with skill_pin_required (Epic 2 story 4 already enforces; this story ensures the Skill Bump Registry is the only path to a new version)."
+verify = "A test asserts register creates a row in pending_promotion with the new pin and triggers a regression run; a test asserts promote without regression_run_id returns skill_regression_missing; a test asserts promote with regression_run_id.result == pass flips to promoted; a test asserts promote with result == fail returns skill_regression_failed and the bump is held back; a test asserts the Skill Bump Registry is the only writer path (AD-22)."
+covers = ["FR-6", "FR-22", "FR-23", "AD-6", "AD-22"]
+after = [3, 4]
+hitl = false
+risk = "high"
+references = ["ARCHITECTURE-SPINE.md#ad-6", "ARCHITECTURE-SPINE.md#ad-22", "spec-devflow/glossary.md (Skill Bump Registry)"]
+
+[[entry]]
+id = 6
+type = "story"
+title = "Retry ladder rung 4 — promoted-Skill path + close skill_not_promoted gap"
+description = "Closes the gap left by story 3's rung-4 stub. Implements the rung-4 attempt using harness.skill_bump_registry.find_promoted(skill_name) — returns a promoted bump or raises skill_not_promoted. The harness then re-invokes the step with the promoted Skill; a failure is recorded as rung 4 result: FAIL with the executor_tuple + new pin on the retry[] entry."
+verify = "A test asserts a rung-4 attempt with a promoted Skill executes the step with the new pin; a test asserts a rung-4 attempt with no promoted Skill returns skill_not_promoted (no rung-4 entry is recorded, the run pauses for operator action); a test asserts rung 4's FAIL advances to rung 5 (human intervention pause, NOT auto-escalation — operator-initiated)."
+covers = ["FR-15-rung-4", "FR-23"]
+after = [5]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 7
+type = "story"
+title = "regression_set_remove — justification audit + NFR-Reliab-3 trail"
+description = "Implements harness.regression_set.remove(run_event_id, reason, removed_by) which appends a regression_set_removals row {removed_run_id, removed_at, removed_by, reason} and tombstones the comparable run. Per NFR-Reliab-3: removes without a reason return regression_set_remove_requires_reason; the audit event is recorded in the run event log (not just in the regression set), so the audit-from-hashes story (UJ-3) does not silently evaporate when comparable runs are removed."
+verify = "A test asserts remove without reason returns regression_set_remove_requires_reason; a test asserts remove with reason + removed_by writes both the tombstone and the audit event on the run event log; a test asserts a subsequent bench query that previously passed now returns regression_set_insufficient when the removed run was the K-th comparable."
+covers = ["NFR-Reliab-3-audit", "FR-20"]
+after = [4]
+hitl = false
+risk = "medium"
+references = ["spec-devflow/glossary.md (regression_set_remove)"]
+
+[[entry]]
+id = 8
+type = "story"
+title = "Sample regression-set fixture — 4 runs on python-hello"
+description = "Ships tests/fixtures/regression-set/python-hello-4-runs/ with 4 deterministic synthetic runs on the python-hello fixture (Epic 2 story 6): one per Agent tuple (human+claude, human+gemini, human+minimax, human+ollama) at project_size_tier=trivial. Each run_event + run summary is committed; bench coding should return a recommendation after this story. The fixture seeds stories 4 and 9's verify lines."
+verify = "`uv run harness bench coding --tier trivial` against the fixture returns a recommendation tuple naming all 4 contributing runs; the fixture ships in the repo and is referenced by every Done-when check in this epic that needs regression data."
+covers = ["CAP-5-demo-substrate"]
+after = [4]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Tracer bullet — synthetic failure → retry ladder → bench insufficient"
+description = "Wires the error store + retry ladder + benchmark + skill bump registry into a single end-to-end invocation: `uv run harness run --project tests/fixtures/sample-projects/python-hello --inject-failure-at coding` triggers a synthetic coding-step failure, advances the ladder rung 1 → 2 → 3 (with no promoted Skill so rung 4 pauses with skill_not_promoted), then `uv run harness bench coding --tier trivial` against a fresh project (no regression data) returns regression_set_insufficient. This is the thinnest path that proves every layer of this epic connects."
+verify = "Running the run+bench sequence exits 0 and produces a closed error record with retry[] containing rung 1 / 2 / 3 attempts; rung 4 is recorded as skill_not_promoted (no rung-4 entry); the bench query returns regression_set_insufficient on the empty project and a recommendation after story 8's fixture is loaded."
+covers = ["CAP-4", "CAP-5", "CAP-6-tracer", "SM-3-partial"]
+after = [6, 7, 8]
+hitl = false
+risk = "low"
+notes = [
+  "tracer bullet: thinnest path through every layer of this epic.",
+  "Story 8 must land before story 9's bench recommendation check; the order enforces this."
+]
+
+[[entry]]
+id = 10
+type = "story"
+title = "Refactor sweep — consolidate retry engine + bench query + skill bump registry"
+description = "Refactor sweep per `ordering`: scope set when the entry starts, from build records and review findings deferred during the epic. Takes cleanup only; scope pushed out of stories 1–9 is a new story. Likely targets: the rung-resolution table (currently scattered across the retry ladder, skill bump registry, and bench), the metric-definition schema for benchmark runs, the error_store / event_log migration runner that story 1 and 2 both extend."
+verify = "`uv run harness run --inject-failure-at coding` exits 0 (regression); `uv run harness bench coding` against the fixture returns a recommendation; `uv run pytest` exits 0; no behavior change to stories 1–9's verify lines."
+covers = ["FR-15", "FR-21", "FR-22", "AD-6", "AD-14"]
+after = [9]
+hitl = false
+risk = "low"
+notes = [
+  "Scope is set when the entry starts. If no cleanup is needed, log a `Decision:` line in this epic's Notes and drop this entry."
+]
