@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# uv
+.venv/
+.python-version
+
+# bmad workflow render cache (per-session, regenerable)
+_bmad/render/
+_bmad/*.log
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
