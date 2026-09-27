@@ -21,3 +21,10 @@ _bmad/*.log
 .vscode/
 .idea/
 *.swp
+
+# Office temp files
+~$.*
+
+# Resources not needed in git (large, not part of harness code)
+*.docx
+*.xlsx
