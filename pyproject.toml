@@ -5,6 +5,7 @@ description = "DevFlow harness — AI coding platform control plane"
 requires-python = ">=3.12.10,<3.13"
 dependencies = [
     "typer>=0.27.2,<0.28",
+    "cryptography>=50.0.1,<51",
 ]
 
 [project.scripts]
