@@ -3,84 +3,89 @@
 
 AD-26: every import under skills/, agents/, herdr/, dashboard/ whose module
 path begins with `harness.` is rejected by `tools/check_layer_boundaries.py`
-unless the imported symbol is listed in this module's `__all__`. Concrete
-implementations land in later stories; this module declares the type stubs
-under TYPE_CHECKING so a runtime `from harness.ports import StepExecutorPort`
-succeeds and a static type checker (mypy / pyright) sees the Protocol shape.
+unless the imported symbol is listed in this module's `__all__`. This
+module defines the eight spine-named Protocol stubs at runtime so that
+`from harness.ports import StepExecutorPort` returns a usable type (not a
+string), which lets downstream code write `isinstance(x, StepExecutorPort)`.
 
 The allowlist `__all__` is what the lint reads — not the runtime-importable
 symbols — so a stub here continues to authorize the import even before the
-concrete type lands.
+concrete type lands (future stories replace these with rich Protocols).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
-if TYPE_CHECKING:
-    class StepExecutorPort(Protocol):
-        """Adapter contract for executor invocation (AD-10)."""
 
-        def start(self, capability: str) -> Any: ...
-        def cancel(self, invocation_id: str) -> None: ...
-        def status(self, invocation_id: str) -> Any: ...
+@runtime_checkable
+class StepExecutorPort(Protocol):
+    """Adapter contract for executor invocation (AD-10)."""
 
-    class HerdrEventPort(Protocol):
-        """Observer interface for Herdr events (AD-9, AD-19)."""
+    def start(self, capability: str) -> Any: ...
+    def cancel(self, invocation_id: str) -> None: ...
+    def status(self, invocation_id: str) -> Any: ...
 
-        def emit(self, event: dict) -> None: ...
 
-    class ExecutorTuple(Protocol):
-        """The (agent, model, skills[]) tuple named in FR-5."""
+@runtime_checkable
+class HerdrEventPort(Protocol):
+    """Observer interface for Herdr events (AD-9, AD-19)."""
 
-        agent: str
-        model: str
-        skills: tuple[str, ...]
+    def emit(self, event: dict) -> None: ...
 
-    class SkillManifest(Protocol):
-        """Pinned Skill descriptor (FR-6, AD-6)."""
 
-        name: str
-        version: str
+@runtime_checkable
+class ExecutorTuple(Protocol):
+    """The (agent, model, skills[]) tuple named in FR-5."""
 
-    class ArtifactContract(Protocol):
-        """Schema reference for a step's input/output (FR-3, AD-27)."""
+    agent: str
+    model: str
+    skills: tuple[str, ...]
 
-        name: str
-        version: str
-        schema_path: str
 
-    class Acknowledgement(Protocol):
-        """Gate Acknowledgement record (FR-10, AD-5, PRD A8)."""
+@runtime_checkable
+class SkillManifest(Protocol):
+    """Pinned Skill descriptor (FR-6, AD-6)."""
 
-        acknowledger: str
-        timestamp: str
-        verdict: str
+    name: str
+    version: str
 
-    class ErrorRecord(Protocol):
-        """Append-only error store record (FR-13, AD-4, PRD addendum §5)."""
 
-        record_id: str
-        category: str
+@runtime_checkable
+class ArtifactContract(Protocol):
+    """Schema reference for a step's input/output (FR-3, AD-27)."""
 
-    class RunEvent(Protocol):
-        """Run Event Log entry (NFR-Obs-1, AD-14)."""
+    name: str
+    version: str
+    schema_path: str
 
-        event_id: str
-        project_id: str
-        run_id: str
-        step: str
 
-# The runtime symbol that downstream code imports. CI lint reads this list,
-# not the TYPE_CHECKING block.
-StepExecutorPort = "StepExecutorPort"
-HerdrEventPort = "HerdrEventPort"
-ExecutorTuple = "ExecutorTuple"
-SkillManifest = "SkillManifest"
-ArtifactContract = "ArtifactContract"
-Acknowledgement = "Acknowledgement"
-ErrorRecord = "ErrorRecord"
-RunEvent = "RunEvent"
+@runtime_checkable
+class Acknowledgement(Protocol):
+    """Gate Acknowledgement record (FR-10, AD-5, PRD A8)."""
+
+    acknowledger: str
+    timestamp: str
+    verdict: str
+
+
+@runtime_checkable
+class ErrorRecord(Protocol):
+    """Append-only error store record (FR-13, AD-4, PRD addendum §5)."""
+
+    record_id: str
+    category: str
+
+
+@runtime_checkable
+class RunEvent(Protocol):
+    """Run Event Log entry (NFR-Obs-1, AD-14)."""
+
+    event_id: str
+    project_id: str
+    run_id: str
+    step: str
+
 
 __all__ = [
     "StepExecutorPort",
