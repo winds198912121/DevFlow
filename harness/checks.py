@@ -60,9 +60,12 @@ def check_keypair() -> CheckResult:
     """The Ed25519 signing key exists with mode 0600."""
     key_path = _key_path()
     if not key_path.exists():
-        # Generate it via the signing path (single side effect of this check).
-        from harness.signing import sign
-        sign({"_baseline_init": True})
+        try:
+            # Generate it via the signing path (single side effect of this check).
+            from harness.signing import sign
+            sign({"_baseline_init": True})
+        except Exception as e:
+            return CheckResult.fail("keypair", f"generation failed: {type(e).__name__}: {e}")
     if not key_path.exists():
         return CheckResult.fail("keypair", f"{key_path} not found after generation")
     if os.name == "posix":
