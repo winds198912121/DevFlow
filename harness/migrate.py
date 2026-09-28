@@ -97,6 +97,21 @@ _MIGRATIONS: list[tuple[int, str, str]] = [
         )
         """.strip(),
     ),
+    (
+        2,
+        "add artifacts table",
+        """
+        CREATE TABLE artifacts (
+            id TEXT PRIMARY KEY,
+            sha256 TEXT NOT NULL,
+            payload BLOB NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            locked_at TEXT,
+            signature TEXT
+        )
+        """.strip(),
+    ),
 ]
 
 

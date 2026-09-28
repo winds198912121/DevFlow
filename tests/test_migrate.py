@@ -33,30 +33,42 @@ def test_idempotent_re_run_no_op():
     rows_before = db.execute("SELECT COUNT(*) FROM _migrations").fetchone()[0]
     run_migrations(db)
     rows_after = db.execute("SELECT COUNT(*) FROM _migrations").fetchone()[0]
-    assert rows_before == rows_after == 1
+    assert rows_before == rows_after
+    # The migration list may grow over the harness's lifetime; the contract
+    # is "the count is stable across re-runs", not "the count is exactly 1".
+    # Story 2.2 added migration #2, so the count is now 2; future stories
+    # may append more.
+    assert rows_after >= 1
     version = db.execute("SELECT MAX(version) FROM _migrations").fetchone()[0]
-    assert version == 1
+    # Version after first run == max known version in _MIGRATIONS.
+    from harness.migrate import _MIGRATIONS
+    assert version == _MIGRATIONS[-1][0]
 
 
 # --- AC 3: apply migration N+1 ------------------------------------------
 
 
 def test_apply_pending_migration(tmp_path, monkeypatch):
-    # Use a fresh DB and append a second migration to the list.
-    db = sqlite3.connect(":memory:")
-    run_migrations(db)
-    # Stash the original list and restore after the test.
+    # Replace the migration list with one that has a known extension BEFORE
+    # running migrations. Using _MIGRATIONS.append() would create a
+    # duplicate-version list (which the validator catches), and appending
+    # after run_migrations has applied the real migration #2 would cause a
+    # hash mismatch on the next run. Easiest: clear + rebuild the list
+    # before opening the DB connection.
     original = list(harness_migrate._MIGRATIONS)
     try:
+        harness_migrate._MIGRATIONS.clear()
+        harness_migrate._MIGRATIONS.append(
+            (1, "init", original[0][2])  # same SQL as the real migration 1
+        )
         harness_migrate._MIGRATIONS.append(
             (
                 2,
                 "add artifacts table",
-                "CREATE TABLE artifact_store (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, locked_at TEXT)",
+                "CREATE TABLE artifact_store (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, payload BLOB NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, locked_at TEXT, signature TEXT)",
             )
         )
-        # Module-level validation already passed at import time, so a mid-run
-        # append is safe. Re-run: applies migration 2.
+        db = sqlite3.connect(":memory:")
         run_migrations(db)
         rows = db.execute(
             "SELECT version, description FROM _migrations ORDER BY version"
@@ -147,7 +159,10 @@ def test_in_memory_db_works(tmp_path):
     db = sqlite3.connect(":memory:")
     run_migrations(db)
     rows = db.execute("SELECT COUNT(*) FROM _migrations").fetchone()
-    assert rows[0] == 1
+    # Migration count is the length of _MIGRATIONS; not pinned to 1 because
+    # future stories (2.2, 3.1, 3.2, 4.1, 4.8) append more.
+    from harness.migrate import _MIGRATIONS
+    assert rows[0] == len(_MIGRATIONS)
     # No var/ files were touched.
     assert not (tmp_path / "var").exists()
 
@@ -183,6 +198,7 @@ def test_default_db_runs_migrations_on_open(tmp_path):
         # Caller runs migrations next.
         run_migrations(db)
         count = db.execute("SELECT COUNT(*) FROM _migrations").fetchone()[0]
-        assert count == 1
+        from harness.migrate import _MIGRATIONS
+        assert count == len(_MIGRATIONS)
     finally:
         db.close()
