@@ -1,0 +1,37 @@
+# pipelines/software-v1@1.yaml
+#
+# The single v1 pipeline definition. Six fixed steps per PRD §6.2 + AD-15:
+#   research → design → coding → testing → review → delivery
+#
+# Loaded by harness.pipeline_loader at boot (Story 2.3). The filename's
+# `@1` binds the version; bumping to `@2` is a new file (AD-16).
+#
+# Per-step `contract` values are names, not runtime resolutions — Story 2.7
+# (Quality Gate Engine) registers the runtime checks for each contract name.
+# v1 ships one contract per step: a stub that the harness itself can
+# satisfy (deterministic canonical-bytes hash, Ed25519 signature presence).
+# Future contract versions can be added by bumping the contract name suffix
+# (e.g. `bmadrun.research.v2`) without touching this YAML.
+
+name: software-v1
+version: 1
+description: DevFlow's fixed six-step software-development pipeline (PRD §6.2).
+steps:
+  - name: research
+    contract: bmadrun.research.v1
+    description: "Produce a cited research artifact (`research.md`) that names the technology landscape, prior art, and constraints."
+  - name: design
+    contract: bmadrun.design.v1
+    description: "Produce a design artifact (`SPEC.md`, `ARCHITECTURE-SPINE.md`) that fixes the artifact contract for downstream steps."
+  - name: coding
+    contract: bmadrun.coding.v1
+    description: "Produce code commits and a `tickets.toml` that decomposes the design into atomic implementation steps."
+  - name: testing
+    contract: bmadrun.testing.v1
+    description: "Produce a `test-report.json` (schema in `_bmad-output/contracts/test-report.schema.json`) that records acceptance evidence."
+  - name: review
+    contract: bmadrun.review.v1
+    description: "Produce a `review.md` and an acknowledgement (signed by the reviewer) that records an accepted / accepted-with-open-items / rejected verdict."
+  - name: delivery
+    contract: bmadrun.delivery.v1
+    description: "Produce a `delivery.json` (signed) that closes the run and seals all prior artifacts."
