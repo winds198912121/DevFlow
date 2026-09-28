@@ -90,6 +90,4 @@ class HumanAdapter:
 
 
 # Re-export for the validate_manifest test below; not part of the public API.
-__all__ = ["HumanAdapter", "SUPPORTED_CAPABILITIES"]
-# Re-bind the constant name for the test's convenience import.
-SUPPORTED_CAPABILITIES = HumanAdapter.SUPPORTED_CAPABILITIES
+__all__ = ["HumanAdapter"]

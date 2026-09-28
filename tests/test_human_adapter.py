@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harness.adapters.human import HumanAdapter, SUPPORTED_CAPABILITIES
+from harness.adapters.human import HumanAdapter
 from harness.executor import AdapterManifest
 
 
@@ -43,5 +43,23 @@ def test_manifest_static_method():
     m = HumanAdapter.manifest()
     assert m["name"] == "human"
     assert m["auth_mode"] == "human"
-    assert set(m["capabilities"]) == set(SUPPORTED_CAPABILITIES)
+    assert set(m["capabilities"]) == set(HumanAdapter.SUPPORTED_CAPABILITIES)
     assert m["description"]
+
+
+# Coverage: missing adapter raises KeyError from registry.get()
+def test_get_unknown_adapter_raises_keyerror():
+    from harness.executor import ADAPTER_REGISTRY
+    with pytest.raises(KeyError):
+        ADAPTER_REGISTRY.get("no-such-adapter")
+
+
+# Coverage: unregister removes the adapter and its manifest
+def test_unregister_removes_adapter_and_manifest():
+    from harness.executor import ADAPTER_REGISTRY
+    ADAPTER_REGISTRY.register(object(), AdapterManifest(name="temp", auth_mode="bearer", capabilities=["x"]))  # type: ignore[arg-type]
+    assert "temp" in ADAPTER_REGISTRY.list()
+    assert ADAPTER_REGISTRY.manifest("temp") is not None
+    ADAPTER_REGISTRY.unregister("temp")
+    assert "temp" not in ADAPTER_REGISTRY.list()
+    assert ADAPTER_REGISTRY.manifest("temp") is None

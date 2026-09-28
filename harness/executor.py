@@ -146,31 +146,16 @@ ADAPTER_REGISTRY = AdapterRegistry()
 # --- Boot-time registration of the human adapter ---------------------------
 #
 # The human adapter is required for v1 (every project needs at least one
-# executor). Wrap the import in try/except so the registry stays usable
-# in slim installs that omit harness/adapters/.
+# executor). The import is unconditional: if `harness.adapters.human` is
+# missing, that's a real bug we want to surface, not swallow.
 
 def _register_human() -> None:
-    try:
-        from harness.adapters.human import HumanAdapter
-    except ImportError:
-        return
+    from harness.adapters.human import HumanAdapter
     if "human" in ADAPTER_REGISTRY.list():
         return  # idempotent across multiple imports
     ADAPTER_REGISTRY.register(
         HumanAdapter(),
-        AdapterManifest(
-            name="human",
-            auth_mode="human",
-            capabilities=[
-                "research",
-                "design",
-                "coding",
-                "testing",
-                "review",
-                "delivery",
-            ],
-            description="Operator-as-adapter: blocks on input() for capability prompts.",
-        ),
+        HumanAdapter.manifest(),
     )
 
 
