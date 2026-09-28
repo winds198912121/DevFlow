@@ -8,6 +8,7 @@ dependencies = [
     "cryptography>=50.0.1,<51",
     "python-ulid>=2.0,<3",
     "ruamel.yaml>=0.18,<1",
+    "pydantic>=2.13,<3",
 ]
 
 [project.scripts]

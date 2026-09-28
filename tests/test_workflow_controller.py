@@ -275,8 +275,13 @@ def test_step_status_locked_when_acknowledgement_verdict_accepted_with_open_item
     assert status.terminal == "Locked"
 
 
-def test_step_status_pending_when_acknowledgement_verdict_rejected(db):
-    """rejected verdict does NOT yield Locked — falls through to Pending."""
+def test_step_status_failed_when_acknowledgement_verdict_rejected(db):
+    """rejected verdict yields Failed (Story 2.7's full AD-24 logic).
+
+    Replaces the Story 2.5 stub `test_step_status_pending_when_acknowledgement_verdict_rejected`,
+    which asserted the stub's Pending fallback. The full resolver maps
+    rejected → Failed per AD-24.
+    """
     db.execute(
         "CREATE TABLE acknowledgements ("
         "  project_id TEXT, run_id TEXT, step TEXT, verdict TEXT"
@@ -288,8 +293,9 @@ def test_step_status_pending_when_acknowledgement_verdict_rejected(db):
     )
     db.commit()
     status = step_status(db, "p1", "R1", "review")
-    assert status.terminal == "Pending"
-    assert status.gate_mode == "enforced"
+    assert status == StepStatus(
+        step="review", terminal="Failed", gate_mode="enforced", run_id="R1", project_id="p1"
+    )
 
 
 def test_step_status_done_for_trivial_tier_with_no_acknowledgement(db):

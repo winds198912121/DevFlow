@@ -53,11 +53,20 @@ class SkillManifest(Protocol):
 
 @runtime_checkable
 class ArtifactContract(Protocol):
-    """Schema reference for a step's input/output (FR-3, AD-27)."""
+    """Schema reference for a step's input/output (FR-3, AD-27).
 
-    name: str
-    version: str
-    schema_path: str
+    The full Protocol is realized by `harness.gate_engine.ArtifactContract`
+    (with `contract_path: str | None` + `validate(payload: bytes) -> Any`).
+    This stub preserves the AD-26 allowlist so that layer-root code may
+    `from harness.ports import ArtifactContract` without triggering the
+    layer-boundary lint. The two definitions are structurally compatible
+    (`contract_path` is the renamed `schema_path`).
+    """
+
+    contract_path: str | None
+
+    def validate(self, payload: bytes) -> Any:
+        """Validate `payload` (the locked artifact's bytes)."""
 
 
 @runtime_checkable
@@ -97,3 +106,4 @@ __all__ = [
     "ErrorRecord",
     "RunEvent",
 ]
+

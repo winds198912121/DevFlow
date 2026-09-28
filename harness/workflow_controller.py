@@ -163,17 +163,28 @@ def step_status(
 ) -> StepStatus:
     """Return the step's terminal status per AD-24.
 
-    v1 stub logic (full Gate Engine lands in Story 2.7):
-      1. If an Acknowledgement row exists for `(project_id, run_id, step)` with
-         `verdict in {"accepted", "accepted-with-open-items"}` → `Locked`.
-      2. Else if `project_size in {"trivial", "session"}` (FR-12 skipped-Gate
-         tiers) → `Done` with `gate_mode='skipped'`.
-      3. Else if no Acknowledgement row and not a skipped-Gate tier → `Pending`.
+    Full resolver logic (Story 2.7 — replaces the Story 2.5 stub):
 
-    The Acknowledgement table is owned by Story 2.8 (writer + reader + AD-23
-    path-triple signature coverage). v1 reads the `verdict` column only and
-    tolerates the table being absent (returns `Pending` in that case — matches
-    "no Acknowledgement record yet" semantics).
+      1. If an Acknowledgement row exists for `(project_id, run_id, step)`
+         with `verdict == 'rejected'` → `Failed` (gate_mode='enforced').
+      2. Else if an Acknowledgement row exists with `verdict in
+         {'accepted', 'accepted-with-open-items'}` → `Locked`
+         (gate_mode='enforced').
+      3. Else if `project_size in {'trivial', 'session'}` (FR-12
+         skipped-Gate tiers) → `Done` with `gate_mode='skipped'`.
+      4. Else → `Pending` (gate_mode='enforced').
+
+    The Acknowledgement table is owned by Story 2.8 (writer + reader +
+    AD-23 path-triple signature coverage). v1 reads the `verdict` column
+    only and tolerates the table being absent (returns `Pending` — matches
+    "no Acknowledgement record yet" semantics; AD-24's full
+    `latest_run_event.outcome == "failed"` branch lives in the Run Event
+    Log story, not in v1).
+
+    The function is re-exported from `harness.gate_engine` per AD-24 (a):
+    "every dashboard view MUST call this function — no view may compute
+    terminal status inline." This single-source rule is enforced by
+    `tools/check_terminal_status.py` in CI (the AD-24 (d) hook).
     """
     if step not in STEP_ORDER:
         raise UnknownStep(f"unknown_step: {step}")
@@ -181,15 +192,17 @@ def step_status(
     gate_mode: GateMode = "enforced"
     terminal: TerminalStatus = "Pending"
 
-    # 1. Acknowledgement row check.
+    # 1+2: Acknowledgement row check (rejected → Failed, accepted → Locked).
     verdict = _read_acknowledgement_verdict(db, project_id, run_id, step)
-    if verdict in ("accepted", "accepted-with-open-items"):
+    if verdict == "rejected":
+        terminal = "Failed"
+    elif verdict in ("accepted", "accepted-with-open-items"):
         terminal = "Locked"
-    # 2. Skipped-Gate tier check.
+    # 3: Skipped-Gate tier check.
     elif project_size in ("trivial", "session"):
         terminal = "Done"
         gate_mode = "skipped"
-    # 3. Otherwise: Pending (gate_mode stays 'enforced').
+    # 4: Otherwise: Pending (gate_mode stays 'enforced').
 
     return StepStatus(
         step=step,
@@ -207,9 +220,12 @@ def _read_acknowledgement_verdict(
     `acknowledgements` table. Returns None if the table is absent or has no
     matching row.
 
-    Acknowledgement table per Story 2.8; v1 stub reads the `verdict` column
+    Acknowledgement table per Story 2.8; v1 reads the `verdict` column
     only. Tolerates the table being absent (returns None → caller falls
-    through to the gate-mode / Pending branches).
+    through to the gate-mode / Pending branches). Also tolerates a
+    misnamed `verdict` column (catches a broader `DatabaseError` so a
+    schema-drift regression surfaces as Pending, not an uncaught
+    exception — the Run Event Log story will surface the schema error).
     """
     try:
         row = db.execute(
@@ -219,7 +235,11 @@ def _read_acknowledgement_verdict(
             (project_id, run_id, step),
         ).fetchone()
     except sqlite3.OperationalError:
-        # Table doesn't exist yet (Story 2.8 territory). Return None.
+        return None
+    except sqlite3.DatabaseError:
+        # Schema drift (e.g. misnamed column) or driver-level error
+        # (e.g. closed connection mid-call). Treat as no Acknowledgement
+        # for v1; the Run Event Log story surfaces the schema error.
         return None
     return row[0] if row else None
 
