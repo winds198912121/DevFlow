@@ -31,6 +31,8 @@ import ast
 import sys
 from pathlib import Path
 
+from tools._lint_helpers import iter_python_files, parse_python_file
+
 WRITE_METHODS = ("post", "put", "patch", "delete")
 DECORATOR_PREFIXES = ("app", "router")  # both @app.X and @router.X are routed
 
@@ -101,13 +103,12 @@ def _scan_file(path: Path, allowlist: frozenset[tuple[str, str]]) -> list[tuple[
     error is a string when path extraction failed (empty / non-string / missing).
     """
     findings: list[tuple[Path, int, str, str | None, str | None]] = []
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except SyntaxError as e:
-        findings.append((path, 0, "SYNTAX_ERROR", None, str(e)))
+    tree_or_error = parse_python_file(path)
+    if not isinstance(tree_or_error, ast.Module):
+        _, err = tree_or_error
+        findings.append((path, 0, "SYNTAX_ERROR", None, err))
         return findings
-
-    for node in ast.walk(tree):
+    for node in ast.walk(tree_or_error):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
@@ -173,7 +174,7 @@ def main() -> int:
         return 0
 
     findings: list[tuple[Path, int, str, str | None, str | None]] = []
-    for py_file in sorted(dashboard_root.rglob("*.py")):
+    for py_file in iter_python_files(dashboard_root):
         findings.extend(_scan_file(py_file, allowlist))
 
     violations = 0

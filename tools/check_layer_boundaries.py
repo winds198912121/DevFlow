@@ -25,6 +25,8 @@ import ast
 import sys
 from pathlib import Path
 
+from tools._lint_helpers import iter_python_files, parse_python_file
+
 DEFAULT_LAYER_ROOTS = ("skills", "agents", "herdr", "dashboard")
 DEFAULT_VAR_DIR_NAME = "var"
 
@@ -35,14 +37,11 @@ def _load_allowlist(ports_path: Path) -> tuple[set[str], str | None]:
     """
     if not ports_path.exists():
         return set(), f"allowlist_unavailable: {ports_path} not found"
-    try:
-        source = ports_path.read_text(encoding="utf-8")
-    except OSError as e:
-        return set(), f"allowlist_unavailable: {ports_path}: {e}"
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as e:
-        return set(), f"allowlist_unavailable: {ports_path}:SYNTAX_ERROR {e}"
+    tree_or_error = parse_python_file(ports_path)
+    if not isinstance(tree_or_error, ast.Module):
+        _, err = tree_or_error
+        return set(), f"allowlist_unavailable: {ports_path}:{err}"
+    tree = tree_or_error
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -117,14 +116,14 @@ def _scan_root(root: Path, allowed: set[str]) -> int:
     exist; missing layer roots are flagged separately by the caller.
     """
     hits = 0
-    for py_file in sorted(root.rglob("*.py")):
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"))
-        except SyntaxError as e:
-            print(f"layer_boundary_violation: {py_file.as_posix()}:SYNTAX_ERROR {e}")
+    for py_file in iter_python_files(root):
+        tree_or_error = parse_python_file(py_file)
+        if not isinstance(tree_or_error, ast.Module):
+            _, err = tree_or_error
+            print(f"layer_boundary_violation: {py_file.as_posix()}:{err}")
             hits += 1
             continue
-        for node in ast.walk(tree):
+        for node in ast.walk(tree_or_error):
             hits += _check_import(node, py_file, allowed)
     return hits
 
