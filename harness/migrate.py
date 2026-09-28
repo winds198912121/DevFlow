@@ -260,6 +260,67 @@ _MIGRATIONS: list[tuple[int, str, str]] = [
         )
         """.strip(),
     ),
+    (
+        13,
+        "add cost_ledger table (Story 4.1)",
+        """
+        CREATE TABLE cost_ledger (
+            op_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            run_id TEXT,
+            step TEXT,
+            tokens_in INTEGER NOT NULL DEFAULT 0,
+            tokens_out INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER,
+            recorded_at TEXT NOT NULL,
+            signed_hash TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        14,
+        "add cost_guard overrides table (Story 4.2)",
+        """
+        CREATE TABLE cost_guard_overrides (
+            project_id TEXT PRIMARY KEY,
+            ceiling INTEGER NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        15,
+        "add cost_guard pauses table (Story 4.2)",
+        """
+        CREATE TABLE cost_guard_pauses (
+            project_id TEXT PRIMARY KEY,
+            paused_at TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        16,
+        "add herdr_mirror_events table (Story 4.8)",
+        """
+        CREATE TABLE herdr_mirror_events (
+            event_id TEXT PRIMARY KEY,
+            project_id TEXT,
+            step TEXT,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            recorded_at TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        17,
+        "add herdr_mirror_position table (Story 4.8)",
+        """
+        CREATE TABLE herdr_mirror_position (
+            stream_path TEXT PRIMARY KEY,
+            byte_offset INTEGER NOT NULL
+        )
+        """.strip(),
+    ),
 ]
 
 

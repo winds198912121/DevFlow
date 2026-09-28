@@ -270,3 +270,121 @@ def bench_command(
         f"metric_summary={rec.metric_summary:.3f} "
         f"contributing_runs={len(rec.contributing_runs)}"
     )
+
+
+@app.command("cost-check")
+def cost_check_command(
+    project: str = typer.Option(..., "--project", help="project_id."),
+    tier: str = typer.Option(
+        "trivial", "--tier", help="trivial|session|epic|project.",
+    ),
+) -> None:
+    """Cost Guard check (Story 4.2 + 4.9 tracer bullet)."""
+    from harness.cost_guard import check as _cost_check
+    decision = _cost_check(project, tier=tier)
+    typer.echo(f"cost_check: project={project} tier={tier} decision={decision}")
+    if decision == "pause":
+        raise typer.Exit(code=1)
+
+
+@app.command("cost-ack")
+def cost_ack_command(
+    project: str = typer.Option(..., "--project", help="project_id."),
+) -> None:
+    """Operator cost_overrun_ack (one of the 6 allowed dashboard writes per AD-21)."""
+    from harness.cost_guard import ack_pause as _ack
+    _ack(project)
+    typer.echo(f"cost-ack: project={project} OK")
+
+
+@app.command("herdr-tail")
+def herdr_tail_command() -> None:
+    """Tail the Herdr stream + mirror new events (Story 4.8 + 4.9)."""
+    from harness.herdr_ingest import tail as _herdr_tail
+    n = _herdr_tail()
+    typer.echo(f"herdr-tail: ingested {n} event(s)")
+
+
+@app.command("serve")
+def serve_command(
+    demo: bool = typer.Option(False, "--demo", help="seed + start the tracer bullet."),
+) -> None:
+    """Start the operator dashboard (Story 4.9 tracer bullet).
+
+    `--demo` seeds the python-hello fixture + 4-run regression set + 1
+    sample Herdr event, then prints the seed summary and exits. The full
+    FastAPI + Bun SPA wiring is owned by Stories 4.3 + 4.4 (deferred).
+    """
+    if not demo:
+        typer.echo(
+            "serve: full dashboard requires Stories 4.3 + 4.4; "
+            "use --demo for the tracer bullet path",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    # Demo: stage python-hello + record a sample regression set + a
+    # sample Herdr event; print the seed summary.
+    import shutil as _shutil
+    from harness.acknowledgement_store import DEFAULT_DB as _ACK_DB
+    from harness.cost_ledger import (
+        DEFAULT_DB as _COST_DB,
+        append as _cost_append,
+    )
+    from harness.herdr_ingest import (
+        DEFAULT_STREAM as _HERDR_STREAM,
+        DEFAULT_MIRROR as _HERDR_MIRROR,
+        tail as _herdr_tail,
+    )
+    from harness.regression_set import DEFAULT_DB as _REG_DB, add as _reg_add
+
+    # Reset cost / regression DBs so the demo is reproducible.
+    for p in (_COST_DB, _REG_DB, _ACK_DB, _HERDR_MIRROR):
+        if p.exists():
+            p.unlink()
+        for ext in (".sqlite-wal", ".sqlite-shm"):
+            q = p.with_suffix(ext)
+            if q.exists():
+                q.unlink()
+
+    # Stage the python-hello fixture.
+    src = Path("tests/fixtures/sample-projects/python-hello/project.yaml")
+    dst = Path("var/projects/python-hello/project.yaml")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    _shutil.copy(src, dst)
+
+    # Seed a sample regression set.
+    for i in range(4):
+        _reg_add(
+            f"DEMO_RUN_{i}",
+            step="coding",
+            project_size_tier="trivial",
+            artifact_contract_version="v1",
+            metric_value=0.92 + i * 0.01,
+            metric_definition="fr_passed/fr_total",
+            added_by="cli",
+        )
+
+    # Seed a sample cost record.
+    _cost_append(
+        project_id="python-hello",
+        run_id="DEMO_RUN_0",
+        step="coding",
+        tokens_in=1200,
+        tokens_out=400,
+        duration_ms=3500,
+    )
+
+    # Seed a sample Herdr event on disk + tail it.
+    _HERDR_STREAM.parent.mkdir(parents=True, exist_ok=True)
+    _HERDR_STREAM.write_text(
+        '{"event_id": "demo-herdr-001", "project_id": "python-hello", '
+        '"step": "coding", "event_type": "agent_progress", '
+        '"recorded_at": "2026-09-28T12:00:00+00:00"}\n',
+        encoding="utf-8",
+    )
+    ingested = _herdr_tail()
+
+    typer.echo(
+        f"serve --demo OK: python-hello seeded; 4 regression runs; "
+        f"1 cost record; {ingested} Herdr event(s) tailed"
+    )
