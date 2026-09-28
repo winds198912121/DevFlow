@@ -1,0 +1,16 @@
+pipeline: software-v1
+pipeline_version: 1
+size: trivial
+steps:
+  research:
+    mode: human
+  design:
+    mode: human
+  coding:
+    mode: human
+  testing:
+    mode: human
+  review:
+    mode: human
+  delivery:
+    mode: human
