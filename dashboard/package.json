@@ -1,0 +1,16 @@
+{
+  "name": "devflow-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DevFlow Operator Dashboard SPA — the AD-13 read-model surface. Builds to dist/, served by tools/dashboard_serve.py.",
+  "scripts": {
+    "build": "bun build ./src/main.ts --outdir ./dist --target browser --minify && cp index.html dist/index.html",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -37,5 +37,14 @@ var/secrets/harness.key
 var/harness.sqlite
 var/harness.sqlite-wal
 var/harness.sqlite-shm
+var/devflow.sqlite
+var/devflow.sqlite-wal
+var/devflow.sqlite-shm
 var/herdr_mirror.sqlite*
 var/herdr/stream.jsonl
+# Project YAMLs + run directories are staged at runtime (`harness serve --demo`,
+# `launch_step`); only the layer skeletons are source.
+var/projects/
+
+# Operator Dashboard SPA (dashboard/)
+node_modules/

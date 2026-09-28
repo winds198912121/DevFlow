@@ -137,6 +137,34 @@ def check_dashboard_write_lint() -> CheckResult:
     )
 
 
+def check_terminal_status_lint() -> CheckResult:
+    """Subprocess-run tools/check_terminal_status.py (AD-24 (d)).
+
+    Fails when a dashboard view imports a second status resolver or reads the
+    fields the resolver consumes. Exits 0 on a dashboard with no views yet, so
+    this is green before Epic 4 and keeps the rule enforced after it.
+    """
+    lint = PROJECT_ROOT / "tools" / "check_terminal_status.py"
+    if not lint.exists():
+        return CheckResult.fail(
+            "terminal_status_lint",
+            f"missing ({lint} not found — AD-24 (d))",
+        )
+    result = subprocess.run(
+        [sys.executable, str(lint)],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    if result.returncode == 0:
+        out = (result.stdout or "").strip()
+        return CheckResult.ok("terminal_status_lint", out or "clean")
+    return CheckResult.fail(
+        "terminal_status_lint",
+        (result.stderr or result.stdout).strip().splitlines()[0] if (result.stderr or result.stdout).strip() else "exit 1",
+    )
+
+
 def check_adapters() -> CheckResult:
     """At least one adapter is registered, and the human adapter is one of them."""
     names = ADAPTER_REGISTRY.list()
@@ -173,6 +201,7 @@ def run_all_checks() -> list[CheckResult]:
         check_signing_path(),
         check_layer_boundary_lint(),
         check_dashboard_write_lint(),
+        check_terminal_status_lint(),
         check_adapters(),
         check_skeleton(),
     ]

@@ -275,6 +275,65 @@ def list_for(
     return tuple(ErrorRecord.from_row(r) for r in rows)
 
 
+def query(
+    project_id: str,
+    *,
+    run_id: str | None = None,
+    step: str | None = None,
+    category: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    db: Path | None = None,
+) -> tuple[ErrorRecord, ...]:
+    """FR-25 filter surface: whole-project error query with AND-composed filters.
+
+    `list_for` is run-scoped; the dashboard's error view is project-scoped
+    (Story 4.5), so this adds the project-wide variant. Every filter is
+    optional and all supplied filters must match (AND, never OR); an empty
+    filter set returns every error for `project_id`.
+
+    `category` outside the closed AD-4 enum raises `InvalidErrorCategory`
+    rather than silently returning nothing — a typo'd filter must not read as
+    "no errors" (Story 4.5 turns this into `category_not_found`).
+    `since`/`until` are inclusive ISO-8601 bounds compared lexicographically
+    against `recorded_at`, which is stored as a UTC ISO-8601 string and so
+    sorts chronologically.
+
+    The `executor_tuple` dimension is deliberately absent: an executor tuple
+    lives inside the `retry` JSON blob, not in a column, so it is refined by
+    the caller after retrieval (`harness.dashboard_service.list_errors`).
+    """
+    if category is not None:
+        _validate_category(category)
+    db_path = db or DEFAULT_DB
+    clauses = ["project_id = ?"]
+    params: list[str] = [project_id]
+    for column, value, op in (
+        ("run_id", run_id, "="),
+        ("step", step, "="),
+        ("category", category, "="),
+        ("recorded_at", since, ">="),
+        ("recorded_at", until, "<="),
+    ):
+        if value is not None:
+            clauses.append(f"{column} {op} ?")
+            params.append(value)
+    conn = _open_db(db_path)
+    try:
+        _ensure_table(conn)
+        rows = conn.execute(
+            "SELECT record_id, project_id, run_id, step, attempt, category, "
+            "root_cause_json, correction_json, retry_json, result, "
+            "recorded_at, hash FROM error_records "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY record_id ASC",
+            tuple(params),
+        ).fetchall()
+    finally:
+        conn.close()
+    return tuple(ErrorRecord.from_row(r) for r in rows)
+
+
 __all__ = [
     "ErrorRecord",
     "ErrorCategory",
@@ -285,5 +344,6 @@ __all__ = [
     "append",
     "read",
     "list_for",
+    "query",
 ]
 

@@ -229,6 +229,28 @@ def find_promoted(
     return _row_to_bump(row) if row else None
 
 
+def read(bump_id: str, *, db: Path | None = None) -> SkillBump | None:
+    """Read one bump by `bump_id`, or None.
+
+    The registry had no by-id reader; the dashboard's regression-diff view
+    (Story 4.6) addresses a bump directly by the id it was handed at
+    registration, so it needs exactly this.
+    """
+    db_path = db or DEFAULT_DB
+    conn = _open_db(db_path)
+    try:
+        _ensure_table(conn)
+        row = conn.execute(
+            "SELECT bump_id, skill_name, new_version, previous_version, state, "
+            "registered_at, promoted_at, promoted_by, regression_run_id "
+            "FROM skill_bumps WHERE bump_id = ?",
+            (bump_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return _row_to_bump(row) if row else None
+
+
 def _row_to_bump(row: tuple) -> SkillBump:
     return SkillBump(
         bump_id=row[0], skill_name=row[1], new_version=row[2],
@@ -248,4 +270,5 @@ __all__ = [
     "register",
     "promote",
     "find_promoted",
+    "read",
 ]

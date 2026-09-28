@@ -9,6 +9,8 @@ dependencies = [
     "python-ulid>=2.0,<3",
     "ruamel.yaml>=0.18,<1",
     "pydantic>=2.13,<3",
+    "fastapi>=0.141,<0.142",
+    "uvicorn>=0.38,<0.39",
 ]
 
 [project.scripts]
@@ -24,6 +26,7 @@ packages = ["harness"]
 [dependency-groups]
 dev = [
     "pytest>=8.0,<9",
+    "httpx>=0.28,<1",
 ]
 
 [tool.pytest.ini_options]

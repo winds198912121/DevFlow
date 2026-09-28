@@ -85,7 +85,7 @@ Story 4.1 ships the Cost Ledger (AD-20); Story 4.2 ships the Cost Guard (AD-8 + 
 
 ## Implementation Notes
 
-**Decision (scope cut):** Stories 4.3-4.7 + 4.11 (the FastAPI backend + Bun SPA + write surface endpoints) are deferred to a follow-on Epic 4 effort. The current Story 4.1+4.2+4.8 surfaces are the core ledger + guard + advisory stream that any future dashboard will read from. Story 4.9 (tracer bullet CLI) is partially covered by `serve --demo` (seeds the data) — the full FastAPI backend + Bun SPA wire-up is its own effort.
+**Decision (scope cut):** Stories 4.3-4.7 + 4.11 (the FastAPI backend + Bun SPA + write surface endpoints) were deferred out of this batch; the core ledger + guard + advisory stream that any dashboard reads from shipped here. **Delivered 2026-09-28** in `story-dashboard-fastapi-spa-batch-plan.md`.
 
 **Corrected (2026-09-28, Story 3.8):** The 10 `UNIQUE constraint failed: artifacts.id` failures were **not** an autouse-fixture ordering artifact and **not** a ULID race. Root cause: `tests/test_cost_ledger.py::test_append_idempotent_under_same_ulid_collision_raises_immutable` patched `ULID.from_datetime` and its manual `finally` restore read the *already-patched* attribute, so the patch became permanent for the process — every later `ULID.from_datetime()` call returned the same id, poisoning `artifact_store.put_pending` (and `acknowledgement_store.write`) for every test that ran afterwards. Bisected by running `tests/test_cost_ledger.py tests/test_workflow_controller.py` (10 failures) vs. the same pair with that one test deselected (0 failures). Fixed in Story 3.8 by switching to `monkeypatch.setattr`, which restores the real classmethod at teardown. Suite: 270 passed / 0 failed.
 

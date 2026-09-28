@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 
-def test_all_eight_ports_importable_as_types():
+def test_all_ports_importable_as_types():
     from harness.ports import (
         StepExecutorPort,
         HerdrEventPort,
@@ -20,31 +20,38 @@ def test_all_eight_ports_importable_as_types():
         Acknowledgement,
         ErrorRecord,
         RunEvent,
+        DashboardPort,
+        DashboardRefusal,
     )
     for sym in (StepExecutorPort, HerdrEventPort, ExecutorTuple, SkillManifest,
-                ArtifactContract, Acknowledgement, ErrorRecord, RunEvent):
+                ArtifactContract, Acknowledgement, ErrorRecord, RunEvent,
+                DashboardPort, DashboardRefusal):
         # Each must be a type (not a string, not None).
         assert isinstance(sym, type), f"{sym!r} is not a type"
 
 
 def test_star_import_resolves_to_allowlist():
+    """`from harness.ports import *` exposes exactly the allowlist.
+
+    Submodule objects are excluded from the comparison: importing a submodule
+    (here, `harness.ports.dashboard`, for its port symbols) binds that name in
+    this package's namespace. That is Python's import machinery, not an
+    exported symbol, so it must not count as a star-export.
+    """
+    import types
+
     from harness import ports
-    ns = vars(ports).copy()
-    ns.pop("__all__", None)
-    ns.pop("__builtins__", None)
-    ns.pop("__cached__", None)
-    ns.pop("__path__", None)
-    ns.pop("__doc__", None)
-    ns.pop("__file__", None)
-    ns.pop("__loader__", None)
-    ns.pop("__name__", None)
-    ns.pop("__package__", None)
-    ns.pop("__spec__", None)
-    ns.pop("annotations", None)
-    ns.pop("Protocol", None)
-    ns.pop("runtime_checkable", None)
-    ns.pop("Any", None)
+    ns = {
+        name: value
+        for name, value in vars(ports).items()
+        if not name.startswith("__") and not isinstance(value, types.ModuleType)
+    }
+    for helper in ("annotations", "Protocol", "runtime_checkable", "Any"):
+        ns.pop(helper, None)
     assert set(ns.keys()) == set(ports.__all__)
+    # The direction the lint depends on: every allowlisted name must resolve,
+    # or `from harness.ports import <name>` fails for a downstream layer.
+    assert set(ports.__all__) <= set(vars(ports))
 
 
 def test_protocol_isinstance_works():
@@ -54,9 +61,10 @@ def test_protocol_isinstance_works():
     assert isinstance(StepExecutorPort, type)
 
 
-def test_empty_module_does_not_have_allowlist():
-    # A side-check: the lint's _load_allowlist expects `__all__`. If someone
-    # refactors ports to drop __all__, this test guards the regression.
+def test_ports_module_exposes_an_allowlist():
+    # The lint's _load_allowlist reads `__all__`; if a refactor dropped it the
+    # lint would silently stop enforcing AD-26. Asserting a specific length
+    # here would instead break every time a port is legitimately published.
     import harness.ports as p
     assert hasattr(p, "__all__")
-    assert len(p.__all__) == 8
+    assert p.__all__, "ports allowlist must not be empty"

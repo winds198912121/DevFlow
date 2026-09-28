@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -113,7 +114,13 @@ def test_run_all_checks_on_real_repo_all_ok():
     results = run_all_checks()
     for r in results:
         assert r.is_ok(), f"{r.name}: {r.detail}"
-    assert len(results) == 7
+    # Assert the checks actually ran, not how many there are: pinning the count
+    # breaks every time a check is added, without saying anything about whether
+    # the repo is healthy.
+    assert results, "run_all_checks returned nothing"
+    assert {"keypair", "layer_boundary_lint", "terminal_status_lint"} <= {
+        r.name for r in results
+    }
 
 
 def test_check_baseline_cli_exits_0_on_clean_repo(tmp_path):
@@ -125,7 +132,11 @@ def test_check_baseline_cli_exits_0_on_clean_repo(tmp_path):
         cwd=str(PROJECT_ROOT),
     )
     assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
-    assert "baseline: 7/7 OK" in result.stdout
+    # The summary line must report all checks passing at whatever the current
+    # count is ("baseline: N/N OK").
+    match = re.search(r"baseline: (\d+)/(\d+) OK", result.stdout)
+    assert match, result.stdout
+    assert match.group(1) == match.group(2)
 
 
 def test_check_baseline_cli_idempotent(tmp_path):
