@@ -25,6 +25,38 @@ research → design → coding → testing → review → delivery
 
 价值在于：换掉某一步的执行者后，能用**同一套回归集**量化它是否更好，且所有状态变更都有签名与审计。
 
+### 运行流程（四张图）
+
+![六步流水线总览](img/devflow-flow-pipeline.png)
+
+**① 六步流水线。** `project.yaml` 经 Project Manager 校验后交给 Workflow Controller；
+每个步骤由适配器执行、把结果封存成工件、并写一个 `.locked` 标记——该标记同时是
+下一步骤的前置条件。`size` 决定门禁是否强制：`epic`/`project` 需要签名裁决
+（`Locked`），`trivial`/`session` 直接跳过门禁（`Done`）。
+
+![单个步骤的生命周期](img/devflow-flow-step.png)
+
+**② 单个步骤的判定顺序。** 三道判定都在动适配器之前完成：跨调用幂等（`.locked`
+标记已存在就直接复用，不重跑适配器）、前置步骤必须已封存（AD-15）、适配器必须返回
+`succeeded`。三个判定各有自己的中止出口。
+
+> **最容易搞混的一点**：前置条件问的是「**上一步的工件封存了吗**」，
+> **不是**「上一步裁决了吗」——这是两个不同的问题。
+
+![步骤终态及其转移](img/devflow-flow-states.png)
+
+**③ 四个终态。** `Done` 与 `Locked` 是不同的终态（AD-11）：前者表示门禁被**跳过**
+（`trivial`/`session` 档），后者表示门禁被**通过**（有签名裁决）。
+`Failed` 表示裁决是 `rejected`。
+
+![失败路径与重试阶梯](img/devflow-flow-failure.png)
+
+**④ 失败与重试阶梯。** 失败先记一条只增不改的 Error Store 记录（AD-4），再逐级升档：
+同执行者重试 → 换 LLM → 换 agent → 用已晋级的 skill；第五档交回人工并暂停，不再自动推进。
+
+> 矢量版：`docs/img/*.svg`（同名）。网页版：`docs/devflow-flow.html`（单文件、离线可开）。
+> 重新导出：`uv run python tools/export_flow_diagrams.py`（`--scale 3` 出印刷尺寸）。
+
 ---
 
 ## 2. 环境要求
