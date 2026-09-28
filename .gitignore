@@ -34,3 +34,8 @@ _bmad/*.log
 # signing key (var/secrets/harness.key) are produced at runtime; commits only
 # keep the empty skeleton (.gitkeep). Use gitkeep pattern, not full gitignore.
 var/secrets/harness.key
+var/harness.sqlite
+var/harness.sqlite-wal
+var/harness.sqlite-shm
+var/herdr_mirror.sqlite*
+var/herdr/stream.jsonl
