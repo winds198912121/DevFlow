@@ -205,17 +205,17 @@ def test_missing_step_raises(tmp_path, monkeypatch):
     assert "review" in exc_info.value.detail
 
 
-# --- AC 12: extra step (7 of 6) ---------------------------------------
+# --- AC 12: unknown step (7 of 6) ---------------------------------------
 
 
-def test_extra_step_raises(tmp_path, monkeypatch):
+def test_unknown_step_raises(tmp_path, monkeypatch):
     _patch_projects_dir(tmp_path, monkeypatch)
     steps = _human_steps()
     steps["foo"] = {"mode": "human"}
     _write_project_yaml(tmp_path, "p1", {"pipeline": "software-v1", "size": "trivial", "steps": steps})
     with pytest.raises(ProjectLoadError) as exc_info:
         load_project("p1")
-    assert exc_info.value.kind == "extra_step"
+    assert exc_info.value.kind == "unknown_step"
     assert "foo" in exc_info.value.detail
 
 
@@ -237,10 +237,7 @@ def test_unknown_step_key_raises_unknown_step(tmp_path, monkeypatch):
     _write_project_yaml(tmp_path, "p1", {"pipeline": "software-v1", "size": "trivial", "steps": steps})
     with pytest.raises(ProjectLoadError) as exc_info:
         load_project("p1")
-    # The plan labels this as "unknown_step" but our loader labels it
-    # "extra_step" (both surface the same underlying problem: a step key
-    # that's not in the pipeline). Test passes for the underlying error.
-    assert exc_info.value.kind in ("unknown_step", "extra_step")
+    assert exc_info.value.kind == "unknown_step"
 
 
 # --- AC 14: missing project file ---------------------------------------

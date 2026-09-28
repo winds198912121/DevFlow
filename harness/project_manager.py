@@ -224,10 +224,13 @@ def _parse_yaml(project_id: str, path: Path) -> Project:
     # Validate step keys.
     extras = set(steps_raw.keys()) - pipeline_step_set
     if extras:
-        # Single extra key reported; multiple extras joined.
+        # Plan labels this `unknown_step` (the YAML has a step key that's
+        # not in the pipeline); same underlying problem. Use the plan's
+        # term for consistency with the verify line + the pipeline loader's
+        # missing-step detection (which uses `missing_step` for the inverse).
         names = ", ".join(sorted(extras))
         raise ProjectLoadError(
-            "extra_step",
+            "unknown_step",
             f"project {project_id!r}: steps not in pipeline {pipeline_name}@{pipeline_version}: {names}",
         )
     unknown = pipeline_step_set - set(steps_raw.keys())
