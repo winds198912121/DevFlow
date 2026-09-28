@@ -8,6 +8,7 @@ prints a one-line summary. The `--help` and no-subcommand paths are preserved.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 
 import typer
 
@@ -115,9 +116,7 @@ def run_command(
             raise typer.Exit(code=2)
 
     if run_id is None:
-        run_id = str(_ulid.ULID.from_datetime(__import__("datetime").datetime.now(
-            __import__("datetime").timezone.utc
-        )))
+        run_id = str(_ulid.ULID.from_datetime(datetime.now(timezone.utc)))
 
     # 2. Open the artifacts DB and ensure migrations.
     db = sqlite3.connect(":memory:")
@@ -181,12 +180,8 @@ def run_command(
                 executor_tuple_hash="sha256:" + canonical_sha256(
                     executor_tuple_json.encode()
                 ).split(":", 1)[1],
-                started_at=__import__("datetime").datetime.now(
-                    __import__("datetime").timezone.utc
-                ).isoformat(),
-                ended_at=__import__("datetime").datetime.now(
-                    __import__("datetime").timezone.utc
-                ).isoformat(),
+                started_at=datetime.now(timezone.utc).isoformat(),
+                ended_at=datetime.now(timezone.utc).isoformat(),
                 outcome="pass",
                 gate_mode=proj.size if proj.size in ("trivial", "session") else "epic",
             )
@@ -198,13 +193,10 @@ def run_command(
         s.executor for s in proj.steps if s.name == "delivery"
     )
     delivery_executor_json = json.dumps(_asdict(delivery_executor))
-    executor_tuple_hash = "sha256:" + canonical_sha256(
-        delivery_executor_json.encode()
-    ).split(":", 1)[1]
     _write_delivery(
         project_id,
         run_id,
-        executor_tuple_hash=executor_tuple_hash,
+        executor_tuple_json=delivery_executor_json,
         artifact_hashes=artifact_hashes,
         acknowledgement_hashes=ack_hashes,
     )

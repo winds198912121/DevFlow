@@ -29,7 +29,7 @@ def _clean_delivery():
 def test_write_delivery_writes_file():
     receipt = write_delivery(
         "p1", "R1",
-        executor_tuple_hash="sha256:" + "0" * 64,
+        executor_tuple_json="{}",
         artifact_hashes=["sha256:" + "a" * 64],
         acknowledgement_hashes=["sha256:" + "b" * 64],
     )
@@ -45,7 +45,7 @@ def test_write_delivery_writes_file():
 def test_read_delivery_roundtrips():
     write_delivery(
         "p1", "R1",
-        executor_tuple_hash="sha256:" + "0" * 64,
+        executor_tuple_json="{}",
         artifact_hashes=["sha256:" + "a" * 64],
         acknowledgement_hashes=["sha256:" + "b" * 64],
     )
@@ -61,14 +61,14 @@ def test_read_delivery_missing_raises():
 
 def test_read_delivery_tampered_signature_raises():
     """Flip the signature on disk; read raises DeliverySignatureInvalid."""
+    import json as _json
     write_delivery(
         "p1", "R1",
-        executor_tuple_hash="sha256:" + "0" * 64,
+        executor_tuple_json="{}",
         artifact_hashes=["sha256:" + "a" * 64],
         acknowledgement_hashes=["sha256:" + "b" * 64],
     )
     path = PROJECT_ROOT / "var" / "projects" / "p1" / "runs" / "R1" / "delivery.json"
-    import json as _json
     data = _json.loads(path.read_text(encoding="utf-8"))
     sig_bytes = bytearray(bytes.fromhex(data["signature"]))
     sig_bytes[0] ^= 0xFF

@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness import signing
+from harness.canonical import canonical_sha256
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -99,14 +100,20 @@ def write_delivery(
     project_id: str,
     run_id: str,
     *,
-    executor_tuple_hash: str,
+    executor_tuple_json: str,
     artifact_hashes: list[str] | tuple[str, ...],
     acknowledgement_hashes: list[str] | tuple[str, ...],
 ) -> DeliveryReceipt:
     """Compute the body + signature and write `delivery.json`.
 
-    The signature is over `canonical_bytes(body)` (AD-17 + AD-5).
+    `executor_tuple_json` is the JSON-serialized executor tuple; the
+    function computes its `sha256:` hash (the spine's
+    `executor_tuple_hash` invariant) and embeds both in the body. The
+    signature is over `canonical_bytes(body)` (AD-17 + AD-5).
     """
+    executor_tuple_hash = (
+        "sha256:" + canonical_sha256(executor_tuple_json.encode()).split(":", 1)[1]
+    )
     receipt = DeliveryReceipt(
         project_id=project_id,
         run_id=run_id,
