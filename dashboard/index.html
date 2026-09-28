@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DevFlow Operator Dashboard</title>
+    <style>
+      :root {
+        --bg: #12141a;
+        --panel: #1a1d26;
+        --line: #2a2f3d;
+        --fg: #e6e8ef;
+        --muted: #8b93a7;
+        --done: #3fb950;
+        --locked: #58a6ff;
+        --pending: #d29922;
+        --failed: #f85149;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      header { padding: 16px 20px; border-bottom: 1px solid var(--line); }
+      h1 { margin: 0 0 4px; font-size: 16px; }
+      header p { margin: 0; color: var(--muted); font-size: 12px; }
+      nav { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+      nav button, .controls button {
+        background: var(--panel);
+        color: var(--fg);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 12px;
+        cursor: pointer;
+        font: inherit;
+      }
+      nav button:hover, .controls button:hover { border-color: var(--locked); }
+      .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+      .controls label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 11px; }
+      .controls input {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--fg);
+        padding: 5px 8px;
+        font: inherit;
+        min-width: 130px;
+      }
+      main { padding: 20px; }
+      h2 { font-size: 14px; margin: 0 0 8px; }
+      h3 { font-size: 13px; margin: 20px 0 8px; color: var(--muted); }
+      .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 14px; }
+      .badge, .chip {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .chip.muted { opacity: 0.6; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+      th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .pill { border-radius: 999px; padding: 2px 10px; font-size: 11px; border: 1px solid var(--line); }
+      .tone-done { color: var(--done); border-color: var(--done); }
+      .tone-locked { color: var(--locked); border-color: var(--locked); }
+      .tone-pending { color: var(--pending); border-color: var(--pending); }
+      .tone-failed { color: var(--failed); border-color: var(--failed); }
+      .num.good { color: var(--done); }
+      .num.bad { color: var(--failed); }
+      .num.zero { color: var(--muted); }
+      .hash { color: var(--muted); }
+      .legend, .pager { color: var(--muted); font-size: 12px; margin-top: 12px; }
+      .empty { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>DevFlow Operator Dashboard</h1>
+      <p>Read model over the canonical harness stores (AD-13). Read-only.</p>
+    </header>
+
+    <nav>
+      <button id="tab-run-status" type="button">Run status</button>
+      <button id="tab-error-store" type="button">Error store</button>
+      <button id="tab-regression-diff" type="button">Regression diff</button>
+      <button id="tab-benchmark-output" type="button">Benchmark output</button>
+    </nav>
+
+    <div class="controls">
+      <label>Project <input id="input-project_id" placeholder="python-hello" /></label>
+      <label>Run <input id="input-run_id" placeholder="R1" /></label>
+      <label>Bump <input id="input-bump_id" placeholder="01H..." /></label>
+      <label>Step <input id="input-step" placeholder="coding" /></label>
+      <label>Tier <input id="input-tier" placeholder="epic" /></label>
+      <label>Contract <input id="input-contract" placeholder="v1" /></label>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+
+    <div class="controls">
+      <label>Filter run <input id="input-filter-run_id" /></label>
+      <label>Filter step <input id="input-filter-step" /></label>
+      <label>Filter category <input id="input-filter-category" /></label>
+      <label>Filter executor <input id="input-filter-executor_tuple" /></label>
+      <label>Filter since <input id="input-filter-since" /></label>
+      <label>Filter until <input id="input-filter-until" /></label>
+      <button id="page-prev" type="button">Prev page</button>
+      <button id="page-next" type="button">Next page</button>
+    </div>
+
+    <main id="app">
+      <div id="surface"></div>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

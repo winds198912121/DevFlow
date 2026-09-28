@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devflow.local/contracts/test-report.schema.json",
+  "title": "DevFlow test-report.json",
+  "description": "Minimum v1 schema for the Testing step's output artifact. Resolves PRD OQ-2 (2026-09-27). Locked fields are required; spec step may elaborate but must version-bump to extend.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "step",
+    "run_id",
+    "project_id",
+    "executor_tuple",
+    "started_at",
+    "ended_at",
+    "outcome",
+    "cases",
+    "acceptance_coverage"
+  ],
+  "properties": {
+    "step": {
+      "type": "string",
+      "const": "testing",
+      "description": "Locked to 'testing' in v1."
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Run identifier (matches NFR-Obs-1 run_event)."
+    },
+    "project_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Project identifier."
+    },
+    "executor_tuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "model", "skills"],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": ["pi", "omp", "codex", "claude-code", "dsh", "human"],
+          "description": "Per FR-5, human is a valid executor; 'human' is included for session/trivial tiers that still emit a test-report."
+        },
+        "model": {
+          "type": "string",
+          "description": "LLM id or 'n/a' when agent is human."
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+@[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "description": "BMAD Skill pin (name@semver). Required by FR-6."
+          },
+          "minItems": 0
+        }
+      }
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC. Matches NFR-Obs-1."
+    },
+    "ended_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC. Must be >= started_at."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["pass", "fail", "error"],
+      "description": "Top-level outcome. 'error' is distinct from 'fail' (executor could not produce a verdict)."
+    },
+    "cases": {
+      "type": "array",
+      "description": "Per-case results. Each case references an acceptance criterion (FR-id or acceptance_ref string).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "acceptance_ref", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "acceptance_ref": {
+            "type": "string",
+            "description": "Either a PRD FR id (e.g. 'FR-17') or a SPEC acceptance id (e.g. 'AC-3')."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "skip", "error"]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Free-form: log path, command output hash, screenshot path, etc. Optional but recommended for audit (UJ-3)."
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional per-case timing."
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "acceptance_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fr_total", "fr_passed"],
+      "properties": {
+        "fr_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of FRs in scope for this testing run."
+        },
+        "fr_passed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of in-scope FRs whose acceptance criteria passed."
+        }
+      },
+      "description": "FR-pass ratio = fr_passed / fr_total. Drives SM-3 error log completeness checks."
+    }
+  }
+}

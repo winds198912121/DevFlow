@@ -1,0 +1,137 @@
+# tickets.toml — epic-dashboard-cost's agreed children, in build order.
+# CAP-7 (operator dashboard) + CAP-8 (cost guard) + Herdr event ingest.
+# 11 stories; build order = numeric (4.1 ... 4.11 then 4.10 refactor sweep).
+
+[[entry]]
+id = 1
+type = "story"
+title = "Cost ledger schema + append-only write API"
+description = "Adds the cost_ledger table to var/harness.sqlite (schema_version=6 migration). Implements harness.cost_ledger.append(op_id, project_id, run_id, step, tokens_in, tokens_out, duration_ms, recorded_at) -> op_id (ULID). Records are immutable post-write; edit returns cost_ledger_immutable (AD-20). Single ledger; dashboard reads from this ledger (NOT from Herdr events, even if both are present)."
+verify = "A test asserts append returns a ULID and persists the row; a test asserts edit returns cost_ledger_immutable; a test asserts a sum query by (project_id, run_id) returns the expected token total; a test asserts the harness-side writer path is the only writer (a deliberate external SQLite write attempt is detectable via the WAL)."
+covers = ["NFR-Cost-1", "AD-20"]
+after = []
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-20"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Cost guard — per-tier ceilings + cost_overrun_ack pause + Skill-bump 3× ceiling"
+description = "Implements harness.cost_guard.check(project_id) -> Continue | Pause. Default ceilings per NFR-Cost-2: trivial ≤ 5e5, session ≤ 5e6, epic ≤ 5e7, project ≤ 2e8 logged tokens. Skill-bump regression ceiling = 3× affected step's normal ceiling. On overrun the guard pauses the next step invocation, writes a run event with gate_mode: cost_paused, and returns Pause. The operator ack path is cost_overrun_ack (one of the 6 allowed dashboard writes per AD-21); ack flips the run state back to running and resumes."
+verify = "A test asserts a project at 50% of ceiling returns Continue; a test asserts a project at 100% of ceiling returns Pause and writes gate_mode: cost_paused; a test asserts cost_overrun_ack on a paused run returns Continue; a test asserts a Skill-bump regression run on a 1e7-token step gets a 3e7 ceiling (not the project's normal 2e8); a test asserts ceilings configurable per project YAML override the defaults."
+covers = ["NFR-Cost-2", "AD-8"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-8"]
+
+[[entry]]
+id = 3
+type = "story"
+title = "FastAPI dashboard backend — read-only endpoints + 6-write allowlist"
+description = "Stands up the FastAPI backend at dashboard/main.py. Read endpoints: GET /runs, GET /runs/{id}, GET /projects/{id}/errors (filterable per FR-25: by project, step, category, executor tuple, date), GET /projects/{id}/regression-diff/{bump_id}, GET /bench/{step}. Write endpoints (6 allowed per AD-21): POST /acknowledgements, POST /swap-executor, POST /skill-bump-regression, POST /skill-bump-promote, POST /cost-overrun-ack, POST /regression-set-remove, POST /project-edit-lock. Every other write route fails CI via tools/check_dashboard_writes.py (Epic 1 story 7's lint)."
+verify = "A test asserts each read endpoint returns the expected shape on the python-hello fixture; a test asserts each of the 7 allowed write endpoints accepts a valid request; a test asserts an attempt to register an 8th write route fails the CI lint; a test asserts a write endpoint request without a valid harness signature returns 401 (AD-10 invocation-token story signs each write)."
+covers = ["FR-24", "FR-25", "FR-26", "FR-27", "AD-13", "AD-21"]
+after = [2]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-13", "ARCHITECTURE-SPINE.md#ad-21", "spec-devflow/architecture-diagrams.md (acknowledgement path)"]
+
+[[entry]]
+id = 4
+type = "story"
+title = "Bun + vanilla TS dashboard shell — 4 views + harness API client"
+description = "Ships dashboard/index.html + dashboard/src/{run-status,error-store,regression-diff,benchmark-output}.ts compiled with Bun. Each view is a pure function of (project_id, run_id, store_snapshot_at_query_time) — no client-side state beyond pagination. Step terminal status comes from /runs/{id} which delegates to harness.gate_engine.step_status (AD-24 single-resolver rule, Epic 2 story 7 owns the resolver). The 4 views match the 4 surfaces in Done-when."
+verify = "`bun run build` produces dashboard/dist/index.html + 4 .js bundles; `bun run dev` serves at http://127.0.0.1:5173 and the 4 views render against the python-hello fixture's seeded run events; a deliberate call to an 8th write route is not reachable from any view (the dashboard never offers a path to it)."
+covers = ["FR-24", "FR-25", "FR-26", "FR-27", "AD-13"]
+after = [3]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md (Stack section — Bun 1.4.2)"]
+
+[[entry]]
+id = 5
+type = "story"
+title = "Error store filters — by project / step / category / executor tuple / date"
+description = "Implements FR-25's filter surface on /projects/{id}/errors: by project_id, by step, by category (closed list — non-existent value returns category_not_found), by Agent/LLM/Skill tuple, by date range. Filters compose (AND, not OR); an empty filter set returns all errors for the project. Result count is bounded by NFR-Perf-2 (≤ 1s for 10,000 records)."
+verify = "A test asserts each filter axis narrows deterministically; a test asserts non-existent category returns category_not_found; a test asserts filters compose; a test asserts the 1s / 10k-record bound holds on a seeded fixture."
+covers = ["FR-25", "NFR-Perf-2"]
+after = [3]
+hitl = false
+risk = "medium"
+references = ["spec-devflow/glossary.md (error category closed list)"]
+
+[[entry]]
+id = 6
+type = "story"
+title = "Regression diff view — per-step pass/fail for a Skill bump"
+description = "Implements /projects/{id}/regression-diff/{bump_id} which renders per-step pass/fail counts from the Skill-bump regression run (Epic 3 story 5's trigger_skill_bump_regression output). Non-comparable steps are flagged per FR-18. Surfaced via the regression-diff dashboard view (Epic 4 story 4)."
+verify = "A test asserts the regression-diff endpoint returns per-step {step, pass, fail, non_comparable, recommendation} for a bump on the python-hello fixture; a test asserts the dashboard's regression-diff view renders the same."
+covers = ["FR-26"]
+after = [3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Benchmark output view — recommendation + metric + contributing runs"
+description = "Implements /bench/{step} which returns the recommendation tuple, the recorded metric definition, and the contributing comparable runs (with their hashes per FR-21). Surfaced via the benchmark-output dashboard view. Refuses with regression_set_insufficient when K=3 floor is not met (NFR-Reliab-3, Epic 3 story 4 owns the query)."
+verify = "A test asserts the benchmark endpoint returns recommendation + metric + contributing_runs on the seeded regression set (Epic 3 story 8); a test asserts regression_set_insufficient on a fresh project; a test asserts the dashboard's benchmark-output view renders the same."
+covers = ["FR-27"]
+after = [3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Herdr event ingest — file-tail on var/herdr/stream.jsonl + read-only mirror"
+description = "Implements harness.herdr_ingest.tail(stream_path) which appends events to var/herdr_mirror.sqlite (schema_version=7). Per AD-9: events are advisory and never authoritative; per AD-19: NO join keys, NO derived fields, NO contribution to canonical state. Herdr-side emitter is out of scope for this epic (it is the Herdr sidecar's responsibility); this story is the harness-side ingest path. Herdr outage MUST NOT block a run (NFR-Reliab-2)."
+verify = "A test asserts appending one valid event to var/herdr/stream.jsonl is reflected in var/herdr_mirror.sqlite within 100ms; a test asserts a malformed event is rejected with malformed_herdr_event and does not block subsequent events; a test asserts a Herdr outage (stream file missing) does not block harness run invocation; a test asserts no Herdr event contributes to canonical state (a query against the harness side never returns Herdr-only fields)."
+covers = ["FR-29", "AD-9", "AD-19", "NFR-Privacy-1"]
+after = [3]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-9", "ARCHITECTURE-SPINE.md#ad-19"]
+
+[[entry]]
+id = 11
+type = "story"
+title = "project_edit_lock — AD-18 prev_yaml_hash + new_yaml_hash + concurrent-edit rejection"
+description = "Implements the dashboard-side write path POST /project-edit-lock (one of the 7 allowed writes per AD-21 + story 3 update). On a valid lock + edit, produces prev_yaml_hash and new_yaml_hash via harness.canonical.canonical_bytes (AD-17). A concurrent edit attempt returns project_edit_lock_held. The harness-side handler is Epic 2 story 9's swap_executor_take_lock; this story is the dashboard write surface that triggers it. The lock is held only for the duration of the edit; on release the new hash is committed to var/projects/<project_id>/project.yaml."
+verify = "A test asserts a successful edit produces both hashes and commits the new YAML; a test asserts a concurrent edit returns project_edit_lock_held and leaves the prior YAML untouched; a test asserts the POST endpoint is one of the 7 allowed (CI lint passes); a test asserts the endpoint refuses when the harness signature is missing or invalid."
+covers = ["FR-7", "AD-18", "AD-21"]
+after = [3]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-18", "spec-devflow/glossary.md (project_edit_lock)"]
+
+[[entry]]
+id = 9
+type = "story"
+title = "Tracer bullet — dashboard surfaces sample run + cost overrun + Herdr file-tail"
+description = "Wires the FastAPI backend + Bun SPA + cost guard + Herdr ingest into a single end-to-end invocation: `uv run harness serve --demo` starts the dashboard at http://127.0.0.1:5173 backed by FastAPI on http://127.0.0.1:8000, seeded with the python-hello fixture (Epic 2 story 6) + 4-run regression set (Epic 3 story 8) + 1 sample Herdr event. The 4 dashboard views render the seeded data; a synthetic over-ceiling run triggers gate_mode: cost_paused and the cost_overrun_ack button on the run-status view resumes it; a concurrent project_edit_lock attempt returns project_edit_lock_held."
+verify = "`uv run harness serve --demo` exits 0; http://127.0.0.1:5173 returns 200 with the SPA shell; the 4 views render against seeded data; a deliberate cost-overrun injection triggers cost_paused + a click on cost_overrun_ack resumes the run; a sample Herdr event appears on the run-status view's Herdr mirror tab without affecting canonical state; a concurrent project_edit_lock attempt returns project_edit_lock_held."
+covers = ["CAP-7", "CAP-8", "FR-29-demo"]
+after = [4, 5, 6, 7, 8, 11]
+hitl = false
+risk = "low"
+notes = [
+  "tracer bullet: thinnest path through every layer of this epic."
+]
+
+[[entry]]
+id = 10
+type = "story"
+title = "Refactor sweep — consolidate FastAPI routes + dashboard views + Herdr ingest"
+description = "Refactor sweep per `ordering`: scope set when the entry starts, from build records and review findings deferred during the epic. Takes cleanup only; scope pushed out of stories 1–9 + 11 is a new story. Likely targets: the 4 view TypeScript modules (shared filter widget?), the FastAPI router's per-route auth middleware, the Herdr ingest's malformed-event retry logic, the project_edit_lock edge cases surfaced by story 11."
+verify = "`uv run harness serve --demo` exits 0; the 4 views render; `uv run pytest` exits 0; no behavior change to stories 1–9 + 11's verify lines."
+covers = ["FR-24", "FR-25", "FR-26", "FR-27", "AD-21"]
+after = [9, 11]
+hitl = false
+risk = "low"
+notes = [
+  "Scope is set when the entry starts. If no cleanup is needed, log a `Decision:` line in this epic's Notes and drop this entry."
+]

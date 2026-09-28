@@ -1,0 +1,50 @@
+{
+  "fixture": "python-hello-4-runs",
+  "step": "coding",
+  "project_size_tier": "trivial",
+  "artifact_contract_version": "v1",
+  "metric_definition": "fr_passed/fr_total",
+  "added_by": "fixture",
+  "runs": [
+    {
+      "run_event_id": "01REGRESSION000000000000000PYHELLO1",
+      "executor_tuple": {
+        "mode": "human",
+        "agent": "human+claude",
+        "model": "claude-opus-4",
+        "skills": []
+      },
+      "metric_value": 0.92
+    },
+    {
+      "run_event_id": "01REGRESSION000000000000000PYHELLO2",
+      "executor_tuple": {
+        "mode": "human",
+        "agent": "human+gemini",
+        "model": "gemini-2.5-pro",
+        "skills": []
+      },
+      "metric_value": 0.95
+    },
+    {
+      "run_event_id": "01REGRESSION000000000000000PYHELLO3",
+      "executor_tuple": {
+        "mode": "human",
+        "agent": "human+minimax",
+        "model": "minimax-text-01",
+        "skills": []
+      },
+      "metric_value": 0.88
+    },
+    {
+      "run_event_id": "01REGRESSION000000000000000PYHELLO4",
+      "executor_tuple": {
+        "mode": "human",
+        "agent": "human+ollama",
+        "model": "ollama-3.5",
+        "skills": []
+      },
+      "metric_value": 0.91
+    }
+  ]
+}

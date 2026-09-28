@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devflow.local/contracts/acknowledgement-record.schema.json",
+  "title": "DevFlow Gate Acknowledgement record",
+  "description": "Independent approval record for a Gate (PRD FR-10, D5/OQ-5 resolved 2026-09-27). Lives at acknowledgements/<step>-<artifact-hash-prefix>.json next to the artifact; artifact stays immutable per FR-11.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "acknowledger",
+    "timestamp",
+    "verdict",
+    "signature",
+    "artifact_ref"
+  ],
+  "properties": {
+    "acknowledger": {
+      "type": "string",
+      "description": "Human user id (e.g. 'mei@team') or 'check:<name>' for automated checks (regression / benchmark passes)."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["accepted", "accepted-with-open-items", "rejected"],
+      "description": "Mirrors FR-9 / FR-10 verdict vocabulary."
+    },
+    "signature": {
+      "type": "string",
+      "description": "Signature over (acknowledger + timestamp + verdict + artifact_ref.hash). Algorithm is implementation-defined; architecture step picks (recommend Ed25519). Unsigned records rejected (NFR-Sec-2)."
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "project_id", "run_id", "hash"],
+      "properties": {
+        "step": {
+          "type": "string",
+          "enum": ["research", "design", "coding", "testing", "review", "delivery"]
+        },
+        "project_id": { "type": "string" },
+        "run_id": { "type": "string" },
+        "hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Content hash of the locked artifact."
+        }
+      }
+    },
+    "open_items": {
+      "type": "array",
+      "description": "Required when verdict = accepted-with-open-items; otherwise omit.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "owner": { "type": "string" },
+          "due": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "rejection_reason": {
+      "type": "string",
+      "description": "Required when verdict = rejected; surfaced in the error record (FR-13)."
+    }
+  }
+}

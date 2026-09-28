@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# uv
+.venv/
+.python-version
+
+# bmad workflow render cache (per-session, regenerable)
+_bmad/render/
+_bmad/*.log
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Office temp files
+~$.*
+
+# Resources not needed in git (large, not part of harness code)
+*.docx
+*.xlsx
+
+# Harness-generated runtime artifacts (first-run creates; not source).
+# The canonical stores (var/harness.sqlite, var/herdr_mirror.sqlite) and the
+# signing key (var/secrets/harness.key) are produced at runtime; commits only
+# keep the empty skeleton (.gitkeep). Use gitkeep pattern, not full gitignore.
+var/secrets/harness.key
+var/harness.sqlite
+var/harness.sqlite-wal
+var/harness.sqlite-shm
+var/devflow.sqlite
+var/devflow.sqlite-wal
+var/devflow.sqlite-shm
+var/herdr_mirror.sqlite*
+var/herdr/stream.jsonl
+# Project YAMLs + run directories are staged at runtime (`harness serve --demo`,
+# `launch_step`); only the layer skeletons are source.
+var/projects/
+
+# Operator Dashboard SPA (dashboard/)
+node_modules/

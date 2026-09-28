@@ -1,0 +1,100 @@
+# tickets.toml — epic-platform-baseline's agreed children, in build order.
+# An entry with no plan and no leaf file is `planned`; pull writes the leaf file. Order of tables = build order.
+# `after` is a real prerequisite (sibling id only — this epic has no cross-epic deps).
+
+[[entry]]
+id = 1
+type = "story"
+title = "uv project scaffold + harness CLI entrypoint"
+description = "Stands up the uv-pinned Python 3.12 project, the Typer-based `harness` CLI with `--check-baseline` flag, the `var/` directory tree, and the empty skills/agents/herdr/dashboard/ skeletons so subsequent lint stories have something to scan. `uv.lock` is committed bit-identically."
+verify = "`uv lock --check` exits 0 from a clean clone, `uv run harness --help` prints the CLI help, and `var/` exists with the four target subdirectories empty."
+covers = ["AD-26"]
+after = []
+hitl = true
+risk = "low"
+notes = [
+  "hitl: the operator runs the starter once to confirm uv sync + CLI help render as expected."
+]
+
+[[entry]]
+id = 2
+type = "story"
+title = "harness.canonical.canonical_bytes — single sha256 path"
+description = "Implements the sole sha256 path: harness.canonical.canonical_bytes(value) -> bytes per AD-17 canonicalization rules (JSON sorted keys + UTF-8 NFC + LF + no trailing newline; text LF + trailing newline; binary as-is). Adds a CI lint that rejects any direct hashlib.sha256 call outside harness/canonical.py. Re-exports canonical_bytes from harness.canonical."
+verify = "A test asserts that canonical_bytes({\"b\": 1, \"a\": 2}) equals canonical_bytes({\"a\": 2, \"b\": 1}); a test asserts UTF-8 NFC normalization; a test asserts the LF-only line ending; a test asserts sha256 of the canonical bytes is stable across two invocations. CI lint `tools/check_no_direct_sha256.py` exits non-zero on a deliberate direct hashlib.sha256 call and exits 0 on the harness/ tree."
+covers = ["AD-17"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Ed25519 harness signing keypair + sign/verify roundtrip"
+description = "Generates Ed25519 keypair at var/secrets/harness.key (0600 file mode) using cryptography.hazmat.primitives.asymmetric.ed25519. Exposes harness.signing.sign(value) -> signature and harness.signing.verify(value, signature) -> bool, both using canonical_bytes internally. Rejects a signature made with a different key."
+verify = "A test asserts sign+verify roundtrip succeeds on a sample canonical-bytes value; a test asserts verify returns False on a tampered value; a test asserts verify returns False on a signature made with a different key; a manual check confirms var/secrets/harness.key has 0600 mode."
+covers = ["NFR-Sec-1", "NFR-Sec-2"]
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Layer-boundary CI lint + empty skills/agents/herdr/dashboard/ skeletons"
+description = "Implements tools/check_layer_boundaries.py per AD-26: parses every *.py under skills/, agents/, herdr/, dashboard/; rejects any import whose module path begins with harness.* except the published allowlist in harness/ports/__init__.py (StepExecutorPort, HerdrEventPort, ExecutorTuple, SkillManifest, ArtifactContract, Acknowledgement, ErrorRecord, RunEvent). Empty skeletons ship with the baseline so the lint has something to scan."
+verify = "The lint exits 0 on the empty skeletons; a deliberate test violation (a fake skills/foo/bar.py that imports harness.canonical.canonical_bytes directly) makes the lint exit non-zero; deleting one of the four skeleton directories makes the lint exit non-zero (treat absence as a violation)."
+covers = ["AD-26"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "ExecutorAdapter port + human adapter registered at boot"
+description = "Defines the ExecutorAdapter protocol in harness/ports/step_executor.py with start(capability) / cancel(id) / status(id) -> outcome. Ships a human adapter implementation that returns the operator's confirmation as the outcome. Registers the human adapter by default at harness boot via the port registry. The AdapterRegistry is the single source of truth for which adapters are loaded."
+verify = "A test asserts AdapterRegistry.list() returns ['human'] on a fresh boot; a test asserts HumanAdapter.start(capability) returns an outcome after a synthetic operator confirmation; a test asserts that adding a second adapter to the registry fails closed if its manifest is malformed."
+covers = ["AD-10"]
+after = [2, 3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "harness --check-baseline smoke test (tracer bullet)"
+description = "Wires `uv run harness --check-baseline` end-to-end: generates the Ed25519 keypair if missing, creates the var/harness.sqlite SQLite (empty canonical stores), runs the layer-boundary lint and the dashboard-write lint, asserts the human adapter is registered, prints a one-line baseline summary. This is the tracer bullet — every other story in this epic is verified through this CLI invocation."
+verify = "`uv run harness --check-baseline` exits 0 with a summary line that names: keypair (path + mode 0600), SQLite (path + size), lint results (layer-boundary OK, dashboard-writes OK), adapter count (>=1, includes human). Running it a second time without deleting var/ also exits 0 (idempotent)."
+covers = ["AD-17", "AD-26", "NFR-Sec-1", "NFR-Sec-2", "AD-10"]
+after = [3, 4, 5]
+hitl = false
+risk = "low"
+notes = [
+  "tracer bullet: the thinnest path that proves every layer of this epic connects."
+]
+
+[[entry]]
+id = 7
+type = "story"
+title = "Dashboard write allowlist CI lint (empty allowlist baseline)"
+description = "Implements tools/check_dashboard_writes.py per AD-21: scans dashboard/ for FastAPI route definitions that perform writes (POST/PUT/PATCH/DELETE) and asserts each one matches an entry in the allowlist. On the baseline run the allowlist is empty and no write routes exist — the lint exits 0. Adding a deliberate write route without an allowlist entry makes the lint exit non-zero."
+verify = "The lint exits 0 on the empty dashboard/ skeleton; a deliberate test violation (a fake POST route added to a test dashboard/) makes the lint exit non-zero with the route path and missing-allowlist-entry named."
+covers = ["AD-21"]
+after = [4]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Refactor sweep — consolidate lint tooling and idempotency helpers"
+description = "Refactor sweep per `ordering`: scope set when the entry starts, from build records and review findings deferred during the epic. Takes cleanup only; scope pushed out of stories 1–7 is a new story. Likely targets: shared AST-walking helpers across the two lints, the var/ idempotency helpers in --check-baseline, the canonical_bytes error messages."
+verify = "`uv run harness --check-baseline` exits 0; `uv run pytest` exits 0; the two lints share a common AST-walking helper (visible in the diff); no behavior change to stories 1–7's verify lines."
+covers = ["AD-17", "AD-26", "AD-21"]
+after = [6, 7]
+hitl = false
+risk = "low"
+notes = [
+  "Scope is set when the entry starts. If no cleanup is needed, log a `Decision:` line in this epic's Notes and drop this entry."
+]

@@ -1,0 +1,141 @@
+# tickets.toml — epic-pipeline-and-gates's agreed children, in build order.
+# CAP-1 (run end-to-end) + CAP-2 (mid-project executor swap) + CAP-3 (Acknowledgement gating).
+# 10 stories; tracer bullet is story 9 (end-to-end run on python-hello with the human adapter).
+
+[[entry]]
+id = 1
+type = "story"
+title = "harness.migrate + schema_version + var/harness.sqlite (WAL)"
+description = "Stands up the SQLite-backed canonical store skeleton at var/harness.sqlite in WAL mode (PRD §6.2 single-node self-hosted). Adds harness.migrate.run_migrations(db) which reads schema_version, applies incremental migrations, refuses to run on a future-version db. Initial schema is empty (tables added by later stories); schema_version=1 stamps the migration log."
+verify = "`uv run python -c \"from harness.migrate import run_migrations; import sqlite3; db=sqlite3.connect('var/harness.sqlite'); run_migrations(db)\"` exits 0; schema_version=1 is in the migrations table; running it a second time is a no-op (idempotent); running it against a db with schema_version=999 returns future_schema_version."
+covers = ["AD-19", "AD-20", "NFR-Reliab-1"]
+after = []
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-19", "ARCHITECTURE-SPINE.md#ad-20"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Artifact Store: content-hash + lock + read API"
+description = "Implements harness.artifact_store with put_pending(path, bytes) -> artifact_id, lock(artifact_id) -> sha256_hash (signs via harness.signing.sign and writes the hash to the artifacts table), read(hash) -> bytes (verifies hash on read per NFR-Reliab-1). Locked artifacts are immutable (edit returns artifact_locked). All hashes go through harness.canonical.canonical_bytes (AD-17)."
+verify = "A test asserts put_pending + lock produces a sha256: prefixed hash; a test asserts a second lock on the same id returns artifact_locked; a test asserts read(hash) verifies the hash on read and returns artifact_corrupt on tamper; a test asserts sha256 of two semantically-equal JSONs is identical (canonical-bytes path)."
+covers = ["FR-11", "FR-17", "AD-17"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-17", "_bmad-output/contracts/test-report.schema.json (will be enforced by story 7)"]
+
+[[entry]]
+id = 3
+type = "story"
+title = "Pipeline loader (pipelines/software-v1@1.yaml) + AD-1 immutability + AD-16 read-only"
+description = "Loads pipelines/<name>@<version>.yaml at harness boot, binds version to id at load time (software-v1@1 != software-v1@2), and refuses any pipeline other than software-v1 (FR-1). Loaded pipelines are read-only post-load (AD-16); a request to edit returns pipeline_immutable (FR-2 / AD-1). Pipeline definitions live at pipelines/software-v1@1.yaml with the six fixed steps and a per-step contract reference."
+verify = "A test asserts a project YAML with pipeline: software-v1 loads; a test asserts pipeline: data-v1 returns pipeline_not_found at load time (FR-1); a test asserts an attempt to mutate the loaded pipeline definition raises pipeline_immutable (FR-2 / AD-1); a test asserts re-loading after pipeline-version bump produces a different pipeline id (AD-16)."
+covers = ["FR-1", "FR-2", "AD-1", "AD-16"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-1", "ARCHITECTURE-SPINE.md#ad-16"]
+
+[[entry]]
+id = 4
+type = "story"
+title = "Project Manager: project YAML load + executor tuple resolution"
+description = "Loads a project YAML (FR-4) at var/projects/<project_id>/project.yaml; rejects missing pipeline (pipeline_required), unknown step keys (unknown_step), and unpinned skills (skill_pin_required — FR-6). Resolves each step's executor tuple (FR-5): mode: human needs no agent/model; mode: agent requires agent, model, and skills[name@version]. Produces a Project in-memory object that the Workflow Controller consumes."
+verify = "A test asserts a valid project YAML loads; a test asserts missing pipeline returns pipeline_required; a test asserts an unpinned skill returns skill_pin_required; a test asserts mode: human with no agent/model succeeds; a test asserts mode: agent without model returns invalid_executor_tuple; a test asserts the Project object exposes step executors in pipeline order."
+covers = ["FR-4", "FR-5", "FR-6"]
+after = [2, 3]
+hitl = false
+risk = "medium"
+references = ["spec-devflow/glossary.md (Project, Executor, Agent, LLM, Skill)"]
+
+[[entry]]
+id = 5
+type = "story"
+title = "Workflow Controller: 6-step wiring + AD-15 sequence + step_status resolver stub"
+description = "Implements harness.workflow_controller.run(project, run_id) which traverses the six fixed steps in pipeline order (AD-15: research → design → coding → testing → review → delivery); each step pulls its locked input from the prior step's artifact; an unresolved prerequisite is held pending and returns step_unreachable on launch. Adds the step_status resolver scaffold (terminal: Done|Locked|Pending|Failed + gate_mode — full AD-24 logic lands in story 7 when the Gate Engine exists)."
+verify = "A test asserts a synthetic run on the python-hello fixture (story 6's fixture) traverses all six step slots in pipeline order; a test asserts attempting to launch the Coding step without Design locked returns step_unreachable; a test asserts the step_status resolver returns Pending for the current step and Locked for prior steps."
+covers = ["FR-8", "FR-9", "FR-12", "AD-15", "AD-24"]
+after = [4]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-15", "ARCHITECTURE-SPINE.md#ad-24"]
+
+[[entry]]
+id = 6
+type = "story"
+title = "Sample project fixture: python-hello"
+description = "Ships tests/fixtures/sample-projects/python-hello/ with project.yaml (pipeline: software-v1, size: trivial), a hello.py with one function and one test, and a README. Used as the runnable substrate for the tracer bullet (story 9) and for all Done-when checks in this epic. The fixture is the thinnest possible project that still exercises all six step slots with mode: human."
+verify = "`uv run harness run --project tests/fixtures/sample-projects/python-hello --dry-run` walks all six step slots and prints each step's planned input/output; the fixture ships in the repo and is referenced by every Done-when check in this epic."
+covers = ["CAP-1-demo-substrate"]
+after = [4]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Quality Gate Engine + step_status resolver + verdict vocabulary"
+description = "Implements harness.gate_engine with verify_artifact(step, artifact) using the per-step contract registered for software-v1 (testing enforces test-report.schema.json per PRD A7; other steps use their BMAD-skill-owned contracts — proposed mapping in spec-devflow/step-skill-map.md). Adds the full step_status resolver per AD-24: gate_mode==skipped → terminal=Done; latest Acknowledgement verdict in {accepted, accepted-with-open-items} → terminal=Locked; latest Acknowledgement verdict == rejected → terminal=Failed; else Pending. Implements the three-valued verdict enum (AD-12)."
+verify = "A test asserts a test-report.json with step: design is rejected by the schema gate with category: testing error; a test asserts the step_status resolver returns Done for a trivial-tier step with gate_mode: skipped and no Acknowledgement record; a test asserts step_status returns Locked for a step with an accepted Acknowledgement; a test asserts step_status returns Failed for a step with a rejected Acknowledgement."
+covers = ["FR-9", "FR-10", "FR-12", "AD-11", "AD-12", "AD-24", "AD-27", "PRD-A7"]
+after = [5]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-11", "ARCHITECTURE-SPINE.md#ad-12", "ARCHITECTURE-SPINE.md#ad-24", "ARCHITECTURE-SPINE.md#ad-27", "spec-devflow/contracts.md (test-report.json versioning)", "spec-devflow/step-skill-map.md (proposed step ownership)"]
+notes = [
+  "PRD A7 schema is enforced here for the testing row only. Other steps' contracts are owned by their BMAD skill (proposed mapping in step-skill-map.md); if a step's BMAD skill has not yet ratified its contract, the gate engine accepts the file at lock time and records an unsigned-contract marker on the run event. ADR-1 candidate for architecture review."
+]
+
+[[entry]]
+id = 8
+type = "story"
+title = "Acknowledgement writer + reader + AD-23 path-triple signature coverage"
+description = "Implements harness.acknowledgement_store.write(project_id, run_id, step, acknowledger, verdict, artifact_hash, open_items?, signature) per AD-5 + PRD A8: writes a JSON record at acknowledgements/<project_id>/<run_id>/<step>/<acknowledgement_id>.json (ULID), signs the canonical-bytes of {path triple, body} with the harness Ed25519 key (AD-23), returns acknowledgement_id. Adds read(id) which verifies signature + path triple and returns acknowledgement_unsigned or acknowledgement_path_mismatch on failure. The PRD-A8-flat storage stance is NOT supported in this epic; spec-devflow/contracts.md L60-L63 documents the divergence."
+verify = "A test asserts write + read roundtrip succeeds with a valid Ed25519 signature; a test asserts a tampered signature returns acknowledgement_unsigned (NFR-Sec-2); a test asserts a record with body project_id=P2 but stored at acknowledgements/P1/R1/design/<id>.json returns acknowledgement_path_mismatch (AD-23); a test asserts the verdict enum is enforced (rejected values are refused at write time); a test asserts the path triple in the signature matches the storage path byte-for-byte."
+covers = ["FR-10", "FR-11", "NFR-Sec-2", "AD-5", "AD-23", "PRD-A8"]
+after = [7]
+hitl = false
+risk = "high"
+references = ["ARCHITECTURE-SPINE.md#ad-5", "ARCHITECTURE-SPINE.md#ad-23", "_bmad-output/contracts/acknowledgement-record.schema.json", "spec-devflow/contracts.md (storage-path stance: spine nested ULID, PRD A8 flat noted as divergence)"]
+
+[[entry]]
+id = 9
+type = "story"
+title = "FR-7 mid-project executor swap — harness-side handler (CAP-2)"
+description = "Implements the harness-side handler for FR-7 mid-project executor swap: between runs (not mid-step), the operator edits the project YAML and submits swap_executor_take_lock (the dashboard write path lands in epic-dashboard-cost; this story is the harness handler). On a valid swap, the prior step's locked artifacts are reused as input; the prior executor's artifacts are retained in history (not deleted). The swap is rejected with project_edit_lock_held if another edit is in flight (AD-18)."
+verify = "A test asserts a Coding-step executor swap between two runs on python-hello leaves the locked SPEC.md from Design untouched and retains the prior Coding artifacts in var/projects/python-hello/runs/R1/coding/; a test asserts a concurrent swap returns project_edit_lock_held; a test asserts the executor_tuple_hash on the new run event differs from the prior (UJ-2 climax)."
+covers = ["FR-7", "AD-18", "CAP-2"]
+after = [7, 8]
+hitl = false
+risk = "medium"
+references = ["ARCHITECTURE-SPINE.md#ad-18", "spec-devflow/glossary.md (project_edit_lock)"]
+
+[[entry]]
+id = 10
+type = "story"
+title = "Tracer bullet: end-to-end run on python-hello with the human adapter (CAP-1 + CAP-3)"
+description = "Wires the Workflow Controller + Quality Gate Engine + Acknowledgement writer + the human ExecutorAdapter into a single end-to-end invocation: `uv run harness run --project tests/fixtures/sample-projects/python-hello` traverses all six steps with mode: human, produces six locked artifacts (each step's hello output), six Acknowledgement records at acknowledgements/python-hello/R1/<step>/<id>.json, and a final delivery.json. The tracer bullet is the thinnest path that proves every layer of this epic connects."
+verify = "Running the command exits 0; var/projects/python-hello/ exists with a closed run record; the artifacts directory contains six sha256: prefixed hashes; acknowledgements/python-hello/R1/ contains six sub-directories with one .json each; running the run twice with --swap-executor on the Coding step between the two runs (story 9's path) leaves the Design artifacts untouched and produces a second Coding artifact under the new executor."
+covers = ["CAP-1", "CAP-3", "FR-12-trivial-tier"]
+after = [6, 7, 8, 9]
+hitl = false
+risk = "low"
+notes = [
+  "tracer bullet: thinnest path through every layer of this epic."
+]
+
+[[entry]]
+id = 11
+type = "story"
+title = "Refactor sweep — consolidate gate engine + Acknowledgement store + sample-fixture wiring"
+description = "Refactor sweep per `ordering`: scope set when the entry starts, from build records and review findings deferred during the epic. Takes cleanup only; scope pushed out of stories 1–10 is a new story. Likely targets: the contract-registration table (currently a dict in gate_engine), the harness.run CLI flag set, the canonical-bytes edge cases surfaced by the tracer bullet, the Acknowledgement writer's open_items serializer, the swap_executor_take_lock handler from story 9."
+verify = "`uv run harness run --project tests/fixtures/sample-projects/python-hello` exits 0 (regression); `uv run pytest` exits 0; no behavior change to stories 1–10's verify lines."
+covers = ["FR-8", "FR-9", "FR-10", "AD-24"]
+after = [10]
+hitl = false
+risk = "low"
+notes = [
+  "Scope is set when the entry starts. If no cleanup is needed, log a `Decision:` line in this epic's Notes and drop this entry."
+]
