@@ -106,6 +106,24 @@ def _swap_human_adapter(monkeypatch: pytest.MonkeyPatch) -> FakeHumanAdapter:
     return fake
 
 
+@pytest.fixture(autouse=True)
+def _clean_ack_dir():
+    """Wipe `acknowledgements/` between tests so Acknowledgement files
+    written by one test don't leak into another.
+
+    Story 2.8's resolver reads Acknowledgements from disk (per spine
+    AD-5 nested-ULID stance); without this fixture, test ordering would
+    silently change `step_status` results. The fixture deletes the
+    directory at the end of each test (after the resolver has run for
+    that test) so a failing test's failure mode stays local.
+    """
+    import shutil
+    from harness.acknowledgement_store import ACKNOWLEDGEMENTS_DIR
+    yield
+    if ACKNOWLEDGEMENTS_DIR.exists():
+        shutil.rmtree(ACKNOWLEDGEMENTS_DIR)
+
+
 # --- Fixtures --------------------------------------------------------------
 
 
@@ -240,61 +258,69 @@ def test_step_status_pending_when_no_acknowledgement_and_epic_tier(db):
     )
 
 
-def test_step_status_locked_when_acknowledgement_verdict_accepted(db):
-    """Locked: Acknowledgement row with verdict='accepted' → Locked/enforced."""
-    # Test inserts an Acknowledgement row directly — Story 2.8 owns the writer.
-    db.execute(
-        "CREATE TABLE acknowledgements ("
-        "  project_id TEXT, run_id TEXT, step TEXT, verdict TEXT"
-        ")"
+def test_step_status_locked_when_acknowledgement_verdict_accepted(db, _clean_ack_dir):
+    """Locked: Acknowledgement with verdict='accepted' → Locked/enforced.
+
+    Story 2.8 upgrade: the resolver reads through the Acknowledgement
+    Store (file on disk), not a hand-rolled SQL table. The test writes a
+    real Acknowledgement record via `acknowledgement_store.write` and
+    asserts that `step_status` returns Locked.
+    """
+    from harness.acknowledgement_store import write, ArtifactRef
+    write(
+        project_id="p1",
+        run_id="R1",
+        step="design",
+        acknowledger="mei@team",
+        acknowledger_kind="human",
+        verdict="accepted",
+        artifact_ref=ArtifactRef(
+            step="design", project_id="p1", run_id="R1", hash="sha256:" + "0" * 64
+        ),
     )
-    db.execute(
-        "INSERT INTO acknowledgements (project_id, run_id, step, verdict) "
-        "VALUES ('p1', 'R1', 'design', 'accepted')"
-    )
-    db.commit()
     status = step_status(db, "p1", "R1", "design")
     assert status == StepStatus(
         step="design", terminal="Locked", gate_mode="enforced", run_id="R1", project_id="p1"
     )
 
 
-def test_step_status_locked_when_acknowledgement_verdict_accepted_with_open_items(db):
-    """Locked: Acknowledgement row with verdict='accepted-with-open-items' → Locked."""
-    db.execute(
-        "CREATE TABLE acknowledgements ("
-        "  project_id TEXT, run_id TEXT, step TEXT, verdict TEXT"
-        ")"
+def test_step_status_locked_when_acknowledgement_verdict_accepted_with_open_items(db, _clean_ack_dir):
+    """Locked: Acknowledgement with verdict='accepted-with-open-items' → Locked."""
+    from harness.acknowledgement_store import write, ArtifactRef, OpenItem
+    write(
+        project_id="p1",
+        run_id="R2",
+        step="review",
+        acknowledger="mei@team",
+        acknowledger_kind="human",
+        verdict="accepted-with-open-items",
+        artifact_ref=ArtifactRef(
+            step="review", project_id="p1", run_id="R2", hash="sha256:" + "0" * 64
+        ),
+        open_items=(OpenItem(id="OI-1", description="fix coverage"),),
     )
-    db.execute(
-        "INSERT INTO acknowledgements (project_id, run_id, step, verdict) "
-        "VALUES ('p1', 'R1', 'review', 'accepted-with-open-items')"
-    )
-    db.commit()
-    status = step_status(db, "p1", "R1", "review")
+    status = step_status(db, "p1", "R2", "review")
     assert status.terminal == "Locked"
 
 
-def test_step_status_failed_when_acknowledgement_verdict_rejected(db):
-    """rejected verdict yields Failed (Story 2.7's full AD-24 logic).
-
-    Replaces the Story 2.5 stub `test_step_status_pending_when_acknowledgement_verdict_rejected`,
-    which asserted the stub's Pending fallback. The full resolver maps
-    rejected → Failed per AD-24.
-    """
-    db.execute(
-        "CREATE TABLE acknowledgements ("
-        "  project_id TEXT, run_id TEXT, step TEXT, verdict TEXT"
-        ")"
+def test_step_status_failed_when_acknowledgement_verdict_rejected(db, _clean_ack_dir):
+    """rejected verdict yields Failed (Story 2.7's full AD-24 logic)."""
+    from harness.acknowledgement_store import write, ArtifactRef
+    write(
+        project_id="p1",
+        run_id="R3",
+        step="review",
+        acknowledger="mei@team",
+        acknowledger_kind="human",
+        verdict="rejected",
+        artifact_ref=ArtifactRef(
+            step="review", project_id="p1", run_id="R3", hash="sha256:" + "0" * 64
+        ),
+        rejection_reason="missing AC-7",
     )
-    db.execute(
-        "INSERT INTO acknowledgements (project_id, run_id, step, verdict) "
-        "VALUES ('p1', 'R1', 'review', 'rejected')"
-    )
-    db.commit()
-    status = step_status(db, "p1", "R1", "review")
+    status = step_status(db, "p1", "R3", "review")
     assert status == StepStatus(
-        step="review", terminal="Failed", gate_mode="enforced", run_id="R1", project_id="p1"
+        step="review", terminal="Failed", gate_mode="enforced", run_id="R3", project_id="p1"
     )
 
 

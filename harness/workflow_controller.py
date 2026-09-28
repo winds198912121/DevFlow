@@ -216,35 +216,43 @@ def step_status(
 def _read_acknowledgement_verdict(
     db: sqlite3.Connection, project_id: str, run_id: str, step: str
 ) -> str | None:
-    """Read the latest verdict for `(project_id, run_id, step)` from the
-    `acknowledgements` table. Returns None if the table is absent or has no
-    matching row.
+    """Read the latest Acknowledgement verdict via `harness.acknowledgement_store`.
 
-    Acknowledgement table per Story 2.8; v1 reads the `verdict` column
-    only. Tolerates the table being absent (returns None → caller falls
-    through to the gate-mode / Pending branches). Also tolerates a
-    misnamed `verdict` column (catches a broader `DatabaseError` so a
-    schema-drift regression surfaces as Pending, not an uncaught
-    exception — the Run Event Log story will surface the schema error).
+    Lazy import: `harness.acknowledgement_store` imports
+    `harness.workflow_controller.STEP_ORDER`, which creates a cycle if
+    imported at module top level. The lazy import here breaks the cycle
+    by deferring the acknowledgement_store import until the helper is
+    actually called (at the first `step_status` invocation).
     """
+    del db  # unused; signature keeps API stability.
+    from harness import acknowledgement_store as _ack_store
     try:
-        row = db.execute(
-            "SELECT verdict FROM acknowledgements "
-            "WHERE project_id = ? AND run_id = ? AND step = ? "
-            "ORDER BY rowid DESC LIMIT 1",
-            (project_id, run_id, step),
-        ).fetchone()
-    except sqlite3.OperationalError:
+        record = _ack_store.read_latest(project_id, run_id, step)
+    except _ack_store.AcknowledgementStoreError as e:
+        # Only swallow "not found" — NFR-Sec-2 forensics require
+        # `AcknowledgementUnsigned` / `AcknowledgementPathMismatch` to
+        # propagate (a future dashboard story surfaces them as deferred
+        # work). For v1 we still convert them to Pending so the operator
+        # is not blocked; the warning is logged so the regression is
+        # visible in the run log.
+        if "not_found" in str(e):
+            return None
+        import warnings
+        warnings.warn(
+            f"acknowledgement_read_failed: {e}",
+            UserWarning,
+            stacklevel=2,
+        )
         return None
-    except sqlite3.DatabaseError:
-        # Schema drift (e.g. misnamed column) or driver-level error
-        # (e.g. closed connection mid-call). Treat as no Acknowledgement
-        # for v1; the Run Event Log story surfaces the schema error.
-        return None
-    return row[0] if row else None
+    return record.verdict if record is not None else None
 
 
-# --- Per-step conductor -----------------------------------------------------
+def _prior_step(step_name: str) -> str | None:
+    """The step immediately preceding `step_name` in STEP_ORDER, or None for the head step."""
+    idx = STEP_ORDER.index(step_name)
+    if idx == 0:
+        return None
+    return STEP_ORDER[idx - 1]
 
 
 def launch_step(

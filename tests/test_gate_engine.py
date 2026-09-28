@@ -65,6 +65,23 @@ def _reset_gate_engine_state() -> None:
         _gate_engine._REGISTRY.update(boot_registry)
 
 
+@pytest.fixture(autouse=True)
+def _clean_ack_dir():
+    """Wipe `acknowledgements/` between tests (Story 2.8: file-backed store).
+
+    Without this fixture, Acknowledgement files written by one test would
+    leak into another, silently changing `step_status` results. The
+    fixture runs cleanup at the END of each test (after the resolver
+    has executed for that test) so a failing test's failure mode stays
+    local.
+    """
+    import shutil
+    from harness.acknowledgement_store import ACKNOWLEDGEMENTS_DIR
+    yield
+    if ACKNOWLEDGEMENTS_DIR.exists():
+        shutil.rmtree(ACKNOWLEDGEMENTS_DIR)
+
+
 # --- Fixtures --------------------------------------------------------------
 
 
@@ -227,55 +244,74 @@ def test_verify_artifact_unknown_step_raises(db):
 # --- AC: step_status full resolver (AD-24) -------------------------------
 
 
-def test_step_status_rejected_yields_failed(db):
-    """rejected Acknowledgement → terminal='Failed' (Story 2.7 full logic)."""
-    db.execute(
-        "CREATE TABLE acknowledgements ("
-        "  project_id TEXT, run_id TEXT, step TEXT, verdict TEXT"
-        ")"
+def test_step_status_rejected_yields_failed(db, _clean_ack_dir):
+    """rejected Acknowledgement → terminal='Failed' (Story 2.7 full logic).
+
+    Story 2.8: the resolver reads Acknowledgements from the disk-backed
+    store, not from a hand-rolled SQL table. The test writes via
+    `acknowledgement_store.write` and asserts `step_status` returns
+    `Failed`.
+    """
+    from harness.acknowledgement_store import write, ArtifactRef
+    write(
+        project_id="p1",
+        run_id="R1",
+        step="design",
+        acknowledger="mei@team",
+        acknowledger_kind="human",
+        verdict="rejected",
+        artifact_ref=ArtifactRef(
+            step="design", project_id="p1", run_id="R1", hash="sha256:" + "0" * 64
+        ),
+        rejection_reason="missing AC-7",
     )
-    db.execute(
-        "INSERT INTO acknowledgements (project_id, run_id, step, verdict) "
-        "VALUES ('p1', 'R1', 'design', 'rejected')"
-    )
-    db.commit()
     status = step_status(db, "p1", "R1", "design")
     assert status.terminal == "Failed"
     assert status.gate_mode == "enforced"
 
 
-def test_step_status_accepted_yields_locked(db):
+def test_step_status_accepted_yields_locked(db, _clean_ack_dir):
     """accepted Acknowledgement → terminal='Locked'."""
-    db.execute(
-        "CREATE TABLE acknowledgements ("
-        "  project_id TEXT, run_id TEXT, step TEXT, verdict TEXT"
-        ")"
+    from harness.acknowledgement_store import write, ArtifactRef
+    write(
+        project_id="p1",
+        run_id="R1",
+        step="design",
+        acknowledger="mei@team",
+        acknowledger_kind="human",
+        verdict="accepted",
+        artifact_ref=ArtifactRef(
+            step="design", project_id="p1", run_id="R1", hash="sha256:" + "0" * 64
+        ),
     )
-    db.execute(
-        "INSERT INTO acknowledgements (project_id, run_id, step, verdict) "
-        "VALUES ('p1', 'R1', 'design', 'accepted')"
-    )
-    db.commit()
     status = step_status(db, "p1", "R1", "design")
     assert status.terminal == "Locked"
 
 
-def test_step_status_trivial_yields_done(db):
+def test_step_status_trivial_yields_done(db, _clean_ack_dir):
     """trivial tier + no Acknowledgement → Done/skipped."""
     status = step_status(db, "p1", "R1", "research", project_size="trivial")
     assert status.terminal == "Done"
     assert status.gate_mode == "skipped"
 
 
-def test_step_status_epic_no_ack_yields_pending(db):
+def test_step_status_epic_no_ack_yields_pending(db, _clean_ack_dir):
     """epic tier + no Acknowledgement → Pending/enforced."""
     status = step_status(db, "p1", "R1", "research", project_size="epic")
     assert status.terminal == "Pending"
     assert status.gate_mode == "enforced"
 
 
-def test_step_status_acknowledgements_table_absent_yields_pending(db):
-    """No `acknowledgements` table → Pending (tolerated)."""
+def test_step_status_acknowledgements_table_absent_yields_pending(
+    db, _clean_ack_dir
+):
+    """No `acknowledgements/` directory → Pending (tolerated).
+
+    Story 2.8: the resolver reads from the file system. An absent
+    `acknowledgements/p1/R1/research/` directory is the equivalent of
+    the previous "no table" path — `read_latest` returns None and the
+    resolver falls through to `Pending`.
+    """
     status = step_status(db, "p1", "R1", "research")
     assert status.terminal == "Pending"
 
