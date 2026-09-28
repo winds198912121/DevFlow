@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>DevFlow 运行流程</title>
+<style>
+  :root {
+    --paper: #f3f2f0; --paper-2: #ebe7e4; --ink: #252f3d; --muted: #5c5752;
+    --soft: #8b847d; --accent: #b86b52; --rule: rgba(37,47,61,0.12);
+    --serif: 'Plantin MT Pro', 'Plantin MT Std', Plantin, Georgia, serif; --mono: 'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font-family: var(--mono); line-height: 1.6; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 56px 32px 72px; }
+  header { margin-bottom: 44px; }
+  .eyebrow, .kicker { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+                       color: var(--soft); margin: 0 0 10px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 30px; margin: 0 0 12px;
+        letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0; max-width: 62ch; }
+  figure { margin: 0 0 56px; }
+  figcaption { margin-top: 14px; color: var(--muted); font-size: 11.5px; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1.15fr 1fr 0.9fr; gap: 20px;
+           margin: 56px 0 0; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #fff; border: 1px solid var(--rule); border-radius: 6px;
+           padding: 20px; }
+  .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .card h3 { font-family: var(--serif); font-weight: 400; font-size: 16px; margin: 0; }
+  .card-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .coral { background: var(--accent); }
+  .blue { background: #4b607c; }
+  .ink { background: var(--ink); }
+  .card ul { margin: 0; padding-left: 16px; font-size: 11.5px; color: var(--muted); }
+  .card li { margin-bottom: 6px; }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
+            color: var(--soft); font-size: 10.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="kicker">DEVFLOW HARNESS · software-v1</p>
+    <h1>运行流程</h1>
+    <p class="sub">流程固定、执行者可换：六个步骤的顺序由代码写死（AD-15），
+       每一步背后的 agent / LLM / skills 可以随时替换并基准测试。
+       下面四张图分别是宏观流水线、单步内部判定、步骤终态与失败路径。</p>
+  </header>
+
+  <figure>
+    <svg role="img" aria-labelledby="flow-pipeline-title flow-pipeline-desc"
+     viewBox="0 0 960 900" width="100%" style="max-width:960px">
+  <title id="flow-pipeline-title">DevFlow 六步流水线总览</title>
+  <desc id="flow-pipeline-desc">从 project.yaml 到 delivery.json 的运行流程：六个固定顺序的步骤，每步由适配器执行后封存工件，再由门禁模式决定该步终态是 Locked 还是 Done。</desc>
+  <defs>
+  <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#5c5752"/>
+  </marker>
+  <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#b86b52"/>
+  </marker>
+  <marker id="arrow-soft" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#8b847d"/>
+  </marker>
+</defs>
+  <rect width="100%" height="100%" fill="#f3f2f0"/>
+<rect x="330.0" y="16" width="300" height="48" rx="24.0" fill="#f3f2f0"/>
+<rect x="330.0" y="16" width="300" height="48" rx="24.0" fill="#ebe7e4" stroke="#5c5752" stroke-width="1"/>
+<text x="480" y="44.0" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">harness run --project X</text>
+<rect x="360" y="104" width="240" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="360" y="104" width="240" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="368" y="110" width="28" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="382" y="119" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">PM</text>
+<text x="480.0" y="138" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Project Manager</text>
+<text x="480.0" y="156" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">加载 + 校验 project.yaml</text>
+<rect x="360" y="208" width="240" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="360" y="208" width="240" height="56" rx="6" fill="rgba(184,107,82,0.08)" stroke="#b86b52" stroke-width="1"/>
+<rect x="368" y="214" width="28" height="12" rx="2" fill="transparent" stroke="#b86b52" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="382" y="223" fill="#b86b52" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">WC</text>
+<text x="480.0" y="242" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Workflow Controller</text>
+<text x="480.0" y="260" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">run() 按 STEP_ORDER 循环</text>
+<rect x="360" y="312" width="240" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="360" y="312" width="240" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="368" y="318" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="390" y="327" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">STEP</text>
+<text x="480.0" y="346" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">单步 launch_step</text>
+<text x="480.0" y="364" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">适配器 → 封存 → .locked</text>
+<polygon points="480,392 620,456 480,520 340,456" fill="#f3f2f0"/>
+<polygon points="480,392 620,456 480,520 340,456" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="480" y="454" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">门禁强制？</text>
+<text x="480" y="471" fill="#5c5752" font-size="9" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">由 size 决定</text>
+<rect x="668" y="428" width="220" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="668" y="428" width="220" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="676" y="434" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="698" y="443" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text>
+<text x="778.0" y="462" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Locked</text>
+<text x="778.0" y="480" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">需签名 Acknowledgement</text>
+<rect x="360" y="584" width="240" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="360" y="584" width="240" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="368" y="590" width="52" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="394" y="599" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">FR-12</text>
+<text x="480.0" y="618" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Done</text>
+<text x="480.0" y="636" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">trivial/session 跳过门禁</text>
+<rect x="360" y="680" width="240" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="360" y="680" width="240" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="368" y="686" width="36" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="386" y="695" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">LOG</text>
+<text x="480.0" y="714" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Run Event Log</text>
+<text x="480.0" y="732" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">每步一条 · AD-14</text>
+<rect x="330.0" y="784" width="300" height="48" rx="24.0" fill="#f3f2f0"/>
+<rect x="330.0" y="784" width="300" height="48" rx="24.0" fill="#ebe7e4" stroke="#5c5752" stroke-width="1"/>
+<text x="480" y="812.0" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">delivery.json</text>
+<path d="M 480 64 L 480 104" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 160 L 480 208" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 264 L 480 312" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 368 L 480 392" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 620 456 L 668 456" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 520 L 480 584" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 778 484 V 700 Q 778 708 770 708 H 600" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 640 L 480 680" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 736 L 480 784" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 360 708 H 104 Q 88 708 88 692 V 244 Q 88 228 104 228 H 360" fill="none" stroke="#5c5752" stroke-width="1.1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<rect x="634" y="436" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="644" y="445" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.06em">是</text>
+<rect x="484" y="547" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="488" y="556" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">否</text>
+<rect x="92" y="631" width="120" height="12" rx="2" fill="#f3f2f0"/><text x="96" y="640" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">下一步骤 · 顺序固定 (AD-15)</text>
+</svg>
+    <figcaption><b>六步流水线。</b> project.yaml 经 Project Manager 校验后交给
+      Workflow Controller；每个步骤由适配器执行、把结果封存成工件并写一个
+      <span style="font-family:var(--mono)">.locked</span> 标记，该标记同时是下一步骤的前置条件。
+      size 决定门禁是否强制：epic/project 需要签名裁决（Locked），
+      trivial/session 直接跳过（Done）。</figcaption>
+  </figure>
+
+  <figure>
+    <svg role="img" aria-labelledby="flow-step-title flow-step-desc"
+     viewBox="0 0 980 1024" width="100%" style="max-width:980px">
+  <title id="flow-step-title">单个步骤的生命周期</title>
+  <desc id="flow-step-desc">launch_step 的判定顺序：先看跨调用幂等标记，再看前置步骤是否封存，然后分派适配器、封存工件、写标记，最后由 step_status 解析终态。三个判定各有自己的中止出口，标在右侧。</desc>
+  <defs>
+  <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#5c5752"/>
+  </marker>
+  <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#b86b52"/>
+  </marker>
+  <marker id="arrow-soft" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#8b847d"/>
+  </marker>
+</defs>
+  <rect width="100%" height="100%" fill="#f3f2f0"/>
+<rect x="330.0" y="16" width="300" height="48" rx="24.0" fill="#f3f2f0"/>
+<rect x="330.0" y="16" width="300" height="48" rx="24.0" fill="#ebe7e4" stroke="#5c5752" stroke-width="1"/>
+<text x="480" y="44.0" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">launch_step(step)</text>
+<polygon points="480,88 670,148 480,208 290,148" fill="#f3f2f0"/>
+<polygon points="480,88 670,148 480,208 290,148" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="480" y="146" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">跨调用幂等？</text>
+<text x="480" y="163" fill="#5c5752" font-size="9" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">.locked 已存在</text>
+<polygon points="480,260 670,320 480,380 290,320" fill="#f3f2f0"/>
+<polygon points="480,260 670,320 480,380 290,320" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="480" y="318" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">前置步骤已封存？</text>
+<text x="480" y="335" fill="#5c5752" font-size="9" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">AD-15 前置</text>
+<rect x="360" y="448" width="240" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="360" y="448" width="240" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="368" y="454" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="390" y="463" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">EXEC</text>
+<text x="480.0" y="482" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">适配器 dispatch</text>
+<text x="480.0" y="500" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">ADAPTER_REGISTRY[mode]</text>
+<polygon points="480,532 670,592 480,652 290,592" fill="#f3f2f0"/>
+<polygon points="480,532 670,592 480,652 290,592" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="480" y="596" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">返回 succeeded？</text>
+<rect x="350" y="720" width="260" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="350" y="720" width="260" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="358" y="726" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="380" y="735" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">AD-3</text>
+<text x="480.0" y="754" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">封存工件 + 写 .locked</text>
+<text x="480.0" y="772" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">put_pending → lock → marker</text>
+<rect x="350" y="824" width="260" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="350" y="824" width="260" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="358" y="830" width="52" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="384" y="839" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">AD-24</text>
+<text x="480.0" y="858" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">step_status 解析终态</text>
+<text x="480.0" y="876" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">单一解析器</text>
+<rect x="330.0" y="928" width="300" height="48" rx="24.0" fill="#f3f2f0"/>
+<rect x="330.0" y="928" width="300" height="48" rx="24.0" fill="#ebe7e4" stroke="#5c5752" stroke-width="1"/>
+<text x="480" y="956.0" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">StepStatus</text>
+<path d="M 670 148 L 712 148" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<circle cx="720" cy="148" r="8" fill="none" stroke="#5c5752" stroke-width="1.2"/><circle cx="720" cy="148" r="5" fill="#5c5752"/>
+<path d="M 670 320 L 712 320" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<circle cx="720" cy="320" r="8" fill="none" stroke="#5c5752" stroke-width="1.2"/><circle cx="720" cy="320" r="5" fill="#5c5752"/>
+<path d="M 670 592 L 712 592" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<circle cx="720" cy="592" r="8" fill="none" stroke="#5c5752" stroke-width="1.2"/><circle cx="720" cy="592" r="5" fill="#5c5752"/>
+<text x="752" y="151" fill="#5c5752" font-size="9" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace">返回已有状态（不重跑适配器）</text>
+<text x="752" y="323" fill="#5c5752" font-size="9" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace">抛 StepUnreachable（拒绝执行）</text>
+<text x="752" y="595" fill="#5c5752" font-size="9" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace">抛 ExecutorInvocationFailed</text>
+<path d="M 480 64 L 480 88" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 208 L 480 260" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 380 L 480 448" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 504 L 480 532" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 652 L 480 720" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 776 L 480 824" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 480 880 L 480 928" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="668" y="130" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="678" y="139" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.06em">是</text>
+<rect x="484" y="225" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="488" y="234" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">否</text>
+<rect x="668" y="302" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="678" y="311" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.06em">否</text>
+<rect x="484" y="405" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="488" y="414" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">是</text>
+<rect x="668" y="574" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="678" y="583" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.06em">否</text>
+<rect x="484" y="677" width="20" height="12" rx="2" fill="#f3f2f0"/><text x="488" y="686" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">是</text>
+</svg>
+    <figcaption><b>单个步骤的判定顺序。</b> 三道判定都在动适配器之前完成：
+      跨调用幂等（标记已存在就直接复用，不重跑）、前置步骤必须已封存（AD-15）、
+      适配器必须返回 succeeded。注意<span style="color:var(--accent)">前置条件是「工件已封存」，
+      不是「已裁决」</span>——两者是不同的问题。</figcaption>
+  </figure>
+
+  <figure>
+    <svg role="img" aria-labelledby="flow-states-title flow-states-desc"
+     viewBox="0 0 960 380" width="100%" style="max-width:960px">
+  <title id="flow-states-title">步骤终态及其转移</title>
+  <desc id="flow-states-desc">四态：Pending 在拿到签名裁决后转为 Locked 或 Failed；trivial/session 档直接跳过门禁进入 Done。Done 与 Locked 是不同的终态。</desc>
+  <defs>
+  <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#5c5752"/>
+  </marker>
+  <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#b86b52"/>
+  </marker>
+  <marker id="arrow-soft" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#8b847d"/>
+  </marker>
+</defs>
+  <rect width="100%" height="100%" fill="#f3f2f0"/>
+<circle cx="80" cy="200" r="6" fill="#252f3d"/>
+<rect x="140" y="172" width="180" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="140" y="172" width="180" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="148" y="178" width="52" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="174" y="187" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">AD-24</text>
+<text x="230.0" y="206" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Pending</text>
+<text x="230.0" y="224" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">门禁强制 · 无裁决</text>
+<rect x="440" y="96" width="200" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="440" y="96" width="200" height="56" rx="6" fill="rgba(184,107,82,0.08)" stroke="#b86b52" stroke-width="1"/>
+<rect x="448" y="102" width="44" height="12" rx="2" fill="transparent" stroke="#b86b52" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="470" y="111" fill="#b86b52" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text>
+<text x="540.0" y="130" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Locked</text>
+<text x="540.0" y="148" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">accepted</text>
+<rect x="440" y="252" width="200" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="440" y="252" width="200" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="448" y="258" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="470" y="267" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text>
+<text x="540.0" y="286" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Failed</text>
+<text x="540.0" y="304" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rejected</text>
+<rect x="440" y="16" width="200" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="440" y="16" width="200" height="56" rx="6" fill="#ebe7e4" stroke="#5c5752" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="448" y="22" width="52" height="12" rx="2" fill="transparent" stroke="#5c5752" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="474" y="31" fill="#5c5752" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">FR-12</text>
+<text x="540.0" y="50" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Done</text>
+<text x="540.0" y="68" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">跳过门禁</text>
+<circle cx="700" cy="124" r="8" fill="none" stroke="#5c5752" stroke-width="1.2"/><circle cx="700" cy="124" r="5" fill="#5c5752"/>
+<circle cx="700" cy="280" r="8" fill="none" stroke="#5c5752" stroke-width="1.2"/><circle cx="700" cy="280" r="5" fill="#5c5752"/>
+<path d="M 86 200 L 140 200" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 80 194 V 52 Q 80 44 88 44 H 440" fill="none" stroke="#5c5752" stroke-width="1.1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path d="M 320 186 H 432 Q 440 186 440 178 V 124" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 320 214 H 432 Q 440 214 440 222 V 252" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 640 124 L 692 124" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 640 280 L 692 280" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="84" y="99" width="124" height="12" rx="2" fill="#f3f2f0"/><text x="88" y="108" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">size=trivial|session</text>
+<rect x="362" y="160" width="60" height="12" rx="2" fill="#f3f2f0"/><text x="392" y="169" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.06em">accepted</text>
+<rect x="362" y="204" width="60" height="12" rx="2" fill="#f3f2f0"/><text x="392" y="213" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.06em">rejected</text>
+</svg>
+    <figcaption><b>四个终态。</b> Pending 在拿到签名裁决后转为 Locked（accepted）或
+      Failed（rejected）；trivial/session 档不经过门禁，直接是 Done。
+      <b>Done ≠ Locked</b>：前者表示门禁被跳过，后者表示门禁通过了（AD-11）。</figcaption>
+  </figure>
+
+  <figure>
+    <svg role="img" aria-labelledby="flow-failure-title flow-failure-desc"
+     viewBox="0 0 960 520" width="100%" style="max-width:960px">
+  <title id="flow-failure-title">失败路径与重试阶梯</title>
+  <desc id="flow-failure-desc">步骤失败先append 一条只增不改的 Error Store 记录，然后逐级升档：rung 1 同执行者重试，rung 2 换 LLM，rung 3 换 agent，rung 4 用已晋级 skill，rung 5 交回人工并暂停。</desc>
+  <defs>
+  <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#5c5752"/>
+  </marker>
+  <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#b86b52"/>
+  </marker>
+  <marker id="arrow-soft" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#8b847d"/>
+  </marker>
+</defs>
+  <rect width="100%" height="100%" fill="#f3f2f0"/>
+<rect x="40" y="200" width="180" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="40" y="200" width="180" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="48" y="206" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="70" y="215" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">FAIL</text>
+<text x="130.0" y="234" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">步骤失败</text>
+<text x="130.0" y="252" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">adapter 返回 failed</text>
+<rect x="272" y="200" width="200" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="272" y="200" width="200" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="280" y="206" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="302" y="215" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">AD-4</text>
+<text x="372.0" y="234" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Error Store append</text>
+<text x="372.0" y="252" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">只增不改 · AD-4</text>
+<rect x="560" y="40" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="40" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="63" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 1 · 同 agent 同 LLM</text>
+<text x="720.0" y="81" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">重试同一执行者</text>
+<rect x="560" y="120" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="120" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="143" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 2 · 同 agent 换 LLM</text>
+<text x="720.0" y="161" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">换一个模型再试</text>
+<rect x="560" y="200" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="200" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="223" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 3 · 换 agent + 更强 LLM</text>
+<text x="720.0" y="241" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">查 bench 推荐</text>
+<rect x="560" y="280" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="280" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="303" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 4 · 用 promoted skill</text>
+<text x="720.0" y="321" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">AD-6 skill 晋级</text>
+<rect x="560" y="392" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="392" width="320" height="56" rx="6" fill="#ebe7e4" stroke="#5c5752" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="568" y="398" width="44" height="12" rx="2" fill="transparent" stroke="#5c5752" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="590" y="407" fill="#5c5752" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">HITL</text>
+<text x="720.0" y="426" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 5 · 人工介入</text>
+<text x="720.0" y="444" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">暂停 · 不再自动</text>
+<path d="M 220 228 L 272 228" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 130 200 V 76 Q 130 68 138 68 H 560" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 96 L 720 120" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 176 L 720 200" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 256 L 720 280" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 336 L 720 392" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="740" y="99" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="108" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+<rect x="740" y="179" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="188" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+<rect x="740" y="259" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="268" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+<rect x="740" y="355" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="364" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+</svg>
+    <figcaption><b>失败与重试阶梯。</b> 失败先记一条只增不改的 Error Store 记录（AD-4），
+      再逐级升档：同执行者重试 → 换 LLM → 换 agent → 用已晋级的 skill；
+      第五档交回人工并暂停，不再自动推进。</figcaption>
+  </figure>
+
+  <div class="grid">
+    <div class="card">
+      <p class="eyebrow">WHY</p>
+      <div class="card-header"><span class="card-dot coral"></span><h3>三条决定了整个形态的规则</h3></div>
+      <ul><li>AD-15 六步顺序写死在代码里，改 YAML 顺序会在启动时抛错</li><li>AD-11 Done 与 Locked 是两个不同的终态：跳过门禁 ≠ 通过门禁</li><li>AD-24 步骤终态只有一个解析器 step_status，谁都不许自己算</li></ul>
+    </div>
+    <div class="card">
+      <p class="eyebrow">WHERE</p>
+      <div class="card-header"><span class="card-dot blue"></span><h3>数据落在哪</h3></div>
+      <ul><li>var/projects/&lt;id&gt;/project.yaml — 项目定义</li><li>var/projects/&lt;id&gt;/runs/&lt;run&gt;/&lt;step&gt;/.locked — 封存标记</li><li>var/harness.sqlite — 工件 / 错误 / 回归集 / 成本</li><li>var/devflow.sqlite — 运行事件 / 编辑锁</li></ul>
+    </div>
+    <div class="card">
+      <p class="eyebrow">HOW</p>
+      <div class="card-header"><span class="card-dot ink"></span><h3>怎么看它跑起来</h3></div>
+      <ul><li>uv run harness run -p tests/fixtures/sample-projects/python-hello</li><li>uv run harness serve   → 127.0.0.1:8137</li><li>human 模式需要 stdin：yes x | uv run harness run ...</li></ul>
+    </div>
+  </div>
+
+  <footer>
+    由 tools/make_flow_diagram.py 生成 · 皮肤取自 pi.dev 品牌色（evening-blue / warm-white /
+    terracotta）· 图中技术标识符为源码中的真实命名，中文标签为说明 ·
+    正文字体使用品牌 mono 栈并回退到系统中文字体。
+  </footer>
+</div>
+</body>
+</html>
