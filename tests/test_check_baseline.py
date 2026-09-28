@@ -97,13 +97,13 @@ def test_layer_boundary_lint_returns_ok():
     assert r.is_ok()
 
 
-# --- check_dashboard_write_lint (stub from Story 1.6) ---------------------
+# --- check_dashboard_write_lint (replaces stub from Story 1.6 in 1.7) ----
 
 
-def test_dashboard_write_lint_returns_ok_with_stub():
+def test_dashboard_write_lint_returns_ok():
     r = check_dashboard_write_lint()
     assert r.is_ok()
-    assert "deferred" in r.detail
+    assert "clean" in r.detail or "AD-21" in r.detail
 
 
 # --- run_all_checks + CLI subprocess ---------------------------------------
