@@ -141,6 +141,36 @@ _MIGRATIONS: list[tuple[int, str, str]] = [
         )
         """.strip(),
     ),
+    (
+        5,
+        "add run_events table (Story 2.10)",
+        """
+        CREATE TABLE run_events (
+            event_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            step TEXT,
+            executor_tuple TEXT NOT NULL,
+            executor_tuple_hash TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            outcome TEXT,
+            gate_mode TEXT,
+            cost_tokens_in INTEGER NOT NULL DEFAULT 0,
+            cost_tokens_out INTEGER NOT NULL DEFAULT 0,
+            confirm_id TEXT,
+            error_record_id TEXT,
+            acknowledgement_id TEXT
+        )
+        """.strip(),
+    ),
+    (
+        6,
+        "add delivery_receipts index (Story 2.10)",
+        """
+        CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events (run_id)
+        """.strip(),
+    ),
 ]
 
 
