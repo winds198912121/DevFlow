@@ -15,8 +15,21 @@ feed.
 uv sync
 uv lock --check                       # bit-identical lockfile across clones
 uv run harness --help                 # Typer help listing check-baseline
-uv run harness check-baseline         # exit 0 (stub until Story 1.6)
+uv run python -m harness check-baseline  # baseline summary line; exit 0
 ```
+
+## CI Lints (Story 1.4 + 1.7 + 1.8)
+
+Both lints must be invoked from the project root (cwd matters — the
+`from tools._lint_helpers import ...` in each lint is satisfied by
+Python's namespace-package behavior when cwd = project_root):
+
+```bash
+uv run python tools/check_layer_boundaries.py
+uv run python tools/check_dashboard_writes.py
+```
+
+Exit 0 = clean; exit 1 = violations printed to stdout with `prefix: <file>:<lineno> <detail>`.
 
 ## Planning artifacts
 
