@@ -87,16 +87,19 @@ def lock(db: sqlite3.Connection, artifact_id: str) -> str:
     Returns the canonical sha256 hash as `"sha256:<hexdigest>"`.
     """
     row = db.execute(
-        "SELECT payload, status, sha256 FROM artifacts WHERE id = ?",
+        "SELECT payload, status, sha256, signature FROM artifacts WHERE id = ?",
         (artifact_id,),
     ).fetchone()
     if row is None:
         raise ArtifactNotFound(f"artifact {artifact_id!r} not found")
-    payload, status, existing_hash = row
-    # Idempotent: if the row is already locked and the hash matches the
-    # current payload, return the existing hash without re-signing.
+    payload, status, existing_hash, existing_signature = row
+    # Idempotent: if the row is already locked, the hash matches the current
+    # payload, AND the signature is present, return the existing hash without
+    # re-signing. The signature check defends against a DB row that was
+    # manually edited to `status='locked'` without a signature — a subsequent
+    # `read()` would raise `ArtifactCorrupted` otherwise.
     current_hash = canonical_sha256(payload)
-    if status == "locked" and existing_hash == current_hash:
+    if status == "locked" and existing_hash == current_hash and existing_signature:
         return current_hash
     if status == "locked" and existing_hash != current_hash:
         # The payload changed after lock; refuse to sign a tampered artifact.

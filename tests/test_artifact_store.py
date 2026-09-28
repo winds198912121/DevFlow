@@ -183,3 +183,20 @@ def test_lock_artifact_not_found_raises():
     run_migrations(db)
     with pytest.raises(ArtifactNotFound):
         lock(db, "non-existent-id")
+
+
+def test_lock_re_signs_when_signature_was_nulled(db):
+    # Defends the idempotent path: if the signature column was nulled (DB
+    # edit / corruption), the second `lock` must re-sign rather than
+    # return a stale hash whose row has no signature (read would then
+    # raise ArtifactCorrupted).
+    aid = put_pending(db, b"hello")
+    h1 = lock(db, aid)
+    # Manually null the signature.
+    db.execute("UPDATE artifacts SET signature = NULL WHERE id = ?", (aid,))
+    db.commit()
+    # Second lock should NOT take the idempotent fast path — it must re-sign.
+    h2 = lock(db, aid)
+    assert h1 == h2
+    # Read should succeed (signature now present).
+    assert read(db, h2) == b"hello"
