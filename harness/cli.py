@@ -1,12 +1,13 @@
 """DevFlow harness CLI.
 
-Epic 1 Story 1.1 stub: exposes `harness --help` and `harness check-baseline`.
-The `check-baseline` command is a placeholder — the real baseline invariant
-checks land in Story 1.6 (canonical_bytes / signing / lints / human adapter
-all wired into one `--check-baseline` invocation).
+Epic 1 Story 1.6 wires `harness check-baseline` as the tracer bullet. The
+command runs every baseline invariant (`harness.checks.run_all_checks`) and
+prints a one-line summary. The `--help` and no-subcommand paths are preserved.
 """
 
 from __future__ import annotations
+
+import sys
 
 import typer
 
@@ -32,10 +33,25 @@ def _root(
 
 @app.command("check-baseline")
 def check_baseline() -> None:
-    """Run the Epic 1 baseline invariants (placeholder in Story 1.1).
+    """Run the Epic 1 baseline invariants and print a one-line summary.
 
-    Story 1.6 wires the real checks; this stub returns exit 0 so that
-    `uv run harness --help` lists the subcommand without error.
+    Exit 0 if every check passes; exit 1 with the first failure's detail on
+    stderr otherwise. Idempotent: running twice produces the same summary.
     """
-    typer.echo("baseline not yet implemented (Story 1.1 stub)")
-    raise typer.Exit()
+    from harness.checks import run_all_checks
+
+    results = run_all_checks()
+    ok_count = sum(1 for r in results if r.is_ok())
+    total = len(results)
+
+    if ok_count == total:
+        details = " | ".join(r.detail for r in results)
+        typer.echo(f"baseline: {ok_count}/{total} OK | {details}")
+        raise typer.Exit(code=0)
+
+    # Failure path: print the same N/N OK count, then the first failure on stderr.
+    details = " | ".join(r.detail for r in results if r.is_ok())
+    first_failure = next(r for r in results if not r.is_ok())
+    typer.echo(f"baseline: {ok_count}/{total} OK | {details}")
+    typer.echo(f"first failure: {first_failure.name}: {first_failure.detail}", err=True)
+    raise typer.Exit(code=1)
