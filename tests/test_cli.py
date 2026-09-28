@@ -131,3 +131,108 @@ def test_swap_command_happy_path():
     assert result.exit_code == 0, result.stdout
     assert "swap OK" in result.stdout
 
+
+
+# --- --inject-failure-at: the retry ladder's only production caller --------
+
+
+@pytest.fixture
+def _clean_error_store():
+    """Reset the Error Store so rung assertions see only this test's rows."""
+    from harness.error_store import DEFAULT_DB
+
+    def _wipe():
+        for p in (DEFAULT_DB, DEFAULT_DB.with_suffix(".sqlite-wal"),
+                  DEFAULT_DB.with_suffix(".sqlite-shm")):
+            if p.exists():
+                p.unlink()
+
+    _wipe()
+    yield
+    _wipe()
+
+
+def test_inject_failure_at_records_a_rung_and_still_exits_zero(_clean_error_store):
+    """Story 3.10's first verify clause.
+
+    Injecting a failure at `coding` must not abort the run: the ladder absorbs
+    it and the command still exits 0, having recorded the attempt.
+    """
+    from harness.error_store import query
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--project", "tests/fixtures/sample-projects/python-hello",
+            "--run-id", "R_INJECT_1",
+            "--inject-failure-at", "coding",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout + (result.stderr or "")
+    assert "injected failure at coding" in result.stdout
+    # The run completed all six steps despite the injected failure.
+    assert "steps=6 OK" in result.stdout
+
+    records = query("python-hello")
+    assert len(records) == 1
+    record = records[0]
+    assert record.step == "coding"
+    assert record.retry[0]["rung"] == 1
+    assert record.retry[0]["result"] == "fail"
+
+
+def test_inject_failure_at_delivery_records_a_valid_category(_clean_error_store):
+    """The `delivery` step must reach the Error Store, not raise.
+
+    Regression guard for the step→category mapping: the hand-copied map returned
+    `delivery`, which is a pipeline step but not one of the closed Error Store
+    categories, so the ladder raised `InvalidErrorCategory` for the last step.
+    """
+    from harness.error_store import _VALID_CATEGORIES, query
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--project", "tests/fixtures/sample-projects/python-hello",
+            "--run-id", "R_INJECT_2",
+            "--inject-failure-at", "delivery",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout + (result.stderr or "")
+    records = query("python-hello")
+    assert len(records) == 1
+    assert records[0].step == "delivery"
+    assert records[0].category in _VALID_CATEGORIES
+
+
+def test_inject_failure_at_does_nothing_without_the_flag(_clean_error_store):
+    from harness.error_store import query
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--project", "tests/fixtures/sample-projects/python-hello",
+            "--run-id", "R_INJECT_3",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "injected failure" not in result.stdout
+    assert query("python-hello") == ()
+
+
+def test_inject_failure_at_unknown_step_is_refused(_clean_error_store):
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--project", "tests/fixtures/sample-projects/python-hello",
+            "--run-id", "R_INJECT_4",
+            "--inject-failure-at", "nope",
+        ],
+    )
+    assert result.exit_code == 2
+    combined = result.stdout + (result.stderr or "")
+    assert "unknown_step" in combined

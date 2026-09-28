@@ -70,6 +70,13 @@ def run_command(
         help="Reuse a prior run_id; cross-invocation idempotency applies. "
              "Default: generate a fresh ULID.",
     ),
+    inject_failure_at: str = typer.Option(
+        None, "--inject-failure-at",
+        help="Record a synthetic failure for this step through the retry ladder "
+             "(Story 3.3), then continue. The run still exits 0: the point is "
+             "that a step failure is absorbed by the ladder instead of aborting "
+             "the run. Unknown step names are refused.",
+    ),
 ) -> None:
     """Run the six software-v1 steps end-to-end on the given project.
 
@@ -90,6 +97,7 @@ def run_command(
         ArtifactRef as _ArtifactRef,
     )
     from harness.workflow_controller import (
+        STEP_ORDER as _STEP_ORDER,
         run as _wc_run,
         launch_step as _wc_launch_step,
     )
@@ -119,6 +127,16 @@ def run_command(
     if run_id is None:
         run_id = str(_ulid.ULID.from_datetime(datetime.now(timezone.utc)))
 
+    # Refuse an unknown step before doing any work, so the flag cannot look
+    # like it did something when it silently matched nothing.
+    if inject_failure_at is not None and inject_failure_at not in _STEP_ORDER:
+        typer.echo(
+            f"unknown_step: {inject_failure_at!r} "
+            f"(expected one of {', '.join(_STEP_ORDER)})",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     # 2. Open the artifacts DB and ensure migrations.
     db = sqlite3.connect(":memory:")
     _run_migrations(db)
@@ -129,8 +147,17 @@ def run_command(
     proj = _load_project(project_id)
     artifact_hashes: list[str] = []
     ack_hashes: list[str] = []
-    for step_name in ("research", "design", "coding", "testing", "review", "delivery"):
+    # `STEP_ORDER` is the controller's own sequence (AD-15); re-listing it here
+    # was a fourth copy of the same six names.
+    for step_name in _STEP_ORDER:
         status = _wc_launch_step(proj, run_id, step_name, db=db)
+        if inject_failure_at == step_name:
+            ladder = _inject_step_failure(project_id, run_id, step_name, proj)
+            typer.echo(
+                f"injected failure at {step_name}: rung "
+                f"{ladder['next_rung']} result={ladder['result']} "
+                f"error_record={ladder['error_record_id']}"
+            )
         # Capture the latest locked artifact for this step.
         rows = db.execute(
             "SELECT sha256 FROM artifacts WHERE status='locked' "
@@ -203,6 +230,53 @@ def run_command(
     )
     typer.echo(f"harness run: project_id={project_id} run_id={run_id} steps={len(artifact_hashes)} OK")
     raise typer.Exit(code=0)
+
+
+def _inject_step_failure(
+    project_id: str, run_id: str, step_name: str, proj
+) -> dict:
+    """Record a synthetic failure for `step_name` through the retry ladder.
+
+    Exists so `harness run --inject-failure-at` can exercise Story 3.3's ladder
+    against real project data: the flag is the first caller of
+    `retry_ladder.advance` outside the unit tests, so without it a regression in
+    the ladder — or in the step→category mapping it depends on — would only
+    surface in production.
+
+    The candidate pool leads with the step's *own* executor, because rung 1 is
+    "same Agent + same LLM + same Skill (re-attempt)" and `rung_1_same` takes
+    `pool[0]`. The project's other distinct executors follow, so rungs 2–3 have
+    alternatives when the YAML provides any.
+
+    The failure is recorded in the Error Store and the caller continues; nothing
+    here fails the run, which is the property the verify line asserts.
+    """
+    from dataclasses import asdict
+
+    from harness.retry_ladder import advance as _advance
+
+    current = next(s.executor for s in proj.steps if s.name == step_name)
+    current_dict = asdict(current)
+    pool: list[dict] = [current_dict]
+    for step in proj.steps:
+        candidate = asdict(step.executor)
+        if candidate not in pool:
+            pool.append(candidate)
+
+    outcome = _advance(
+        project_id,
+        run_id,
+        step_name,
+        executor_pool=pool,
+        current_executor={**current_dict, "tier": proj.size},
+    )
+    return {
+        "next_rung": outcome.next_rung,
+        "result": outcome.result,
+        "error_record_id": (
+            outcome.error_record.record_id if outcome.error_record else None
+        ),
+    }
 
 
 @app.command("swap")

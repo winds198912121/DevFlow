@@ -56,6 +56,10 @@ change below either removes a duplicate or fixes a path that raised.
 | `advance(step="tool")` | category `coding` (collapsed) | category `tool` (it is a valid category) |
 | `ensure_tables(db, "not_a_table")` | n/a | `ValueError` |
 | A database bootstrapped without migrations | `run_events` missing its index | schema identical to the migrated one |
+| `run --inject-failure-at coding` | flag did not exist | exits 0; one Error Store row with `retry[0].rung == 1` |
+| `run --inject-failure-at delivery` | n/a | exits 0; recorded category is a closed-enum member |
+| `run --inject-failure-at nope` | n/a | `unknown_step` on stderr, exit 2, no run performed |
+| `run` without the flag | no Error Store rows | unchanged — no Error Store rows |
 
 ## Code Map
 
@@ -65,15 +69,18 @@ change below either removes a duplicate or fixes a path that raised.
 | `harness/{error_store,run_event_log,regression_set,cost_ledger,cost_guard,project_edit_lock,skill_bump_registry,executor_swap,herdr_ingest}.py` | `_ensure_table(s)` delegate to `migrate.ensure_tables` |
 | `harness/regression_set.py` | Metric-definition comparability guard; `metric_definition` computed once |
 | `harness/retry_ladder.py` | Drop `_STEP_CATEGORY_MAP`; `_step_category` reads the closed enum |
+| `harness/cli.py` | `run --inject-failure-at STEP` (the ladder's first production caller); walk `STEP_ORDER` instead of a 4th inline copy of it |
 | `tests/test_migrate.py` | +5 tests: bootstrap schema equals migrated schema, the restored index, unknown-table refusal, one-statement-per-migration |
 | `tests/test_regression_set.py` | +2 tests: mixed definitions refuse; uniform definitions still average |
 | `tests/test_retry_ladder.py` | +3 tests: every pipeline step yields an accepted category; `delivery` records a rung; fallback behaviour |
+| `tests/test_cli.py` | +4 tests: the flag records a rung and exits 0; `delivery` records a valid category through the CLI; the flag is inert without it; an unknown step is refused with exit 2 |
 
 ## Tasks & Acceptance
 
 - [x] Target (a) rung resolution — investigate, dedupe the step→category copy.
 - [x] Target (b) metric-definition schema — add the missing comparability guard.
 - [x] Target (c) migration runner — one definition for every table.
+- [x] Target (d, from the verify line) — wire `run --inject-failure-at STEP`, the ladder's first production caller.
 - [x] No behavior change to stories 1–9.
 
 ## Implementation Notes
@@ -97,7 +104,8 @@ resolves to `coding` instead of raising.
 **KEEP:** `ensure_tables` must stay derived from `_MIGRATIONS`; a store adding a
 hand-copied `CREATE TABLE` re-introduces the drift `test_ensure_tables_produces_
 the_migrated_schema` exists to catch. `bench_query` must check comparability on
-**both** axes before averaging.
+**both** axes before averaging. `run --inject-failure-at` must leave the run
+exiting 0 — a failure a run cannot survive is not what the ladder is for.
 
 ## Plan Change Log
 
@@ -105,6 +113,18 @@ the_migrated_schema` exists to catch. `bench_query` must check comparability on
   named targets were all real; two of the three had already produced defects
   (findings 1 and 3), which is why this is a fix-bearing sweep rather than pure
   reshuffling.
+- **2026-09-28 (follow-up):** Wired `run --inject-failure-at STEP`. The verify
+  line named it, and investigation showed `retry_ladder.advance` had **no
+  production caller** — so the flag is not a test-only convenience, it is the
+  ladder's first integration point. Two consequences recorded: the ladder is now
+  exercised end-to-end by CI, and `run_command`'s inline re-listing of the six
+  step names (a 4th copy of `STEP_ORDER`) is gone.
+
+  Caveat for anyone running the verify line by hand: the python-hello fixture is
+  `mode: human`, so `harness run` prompts on stdin. Non-interactively it needs
+  piped input (`yes x | uv run harness run …`); without it the run fails at the
+  first step with `executor_invocation_failed: operator_input_eof`. That is
+  pre-existing behaviour of the human adapter, not of this flag.
 
 ## Review Triage Log
 
@@ -115,7 +135,7 @@ Self-review: 2 high (patched) / 1 medium (patched) / 1 noted.
 | 1 | `harness/retry_ladder.py::_step_category` | The step→category map returned `delivery`, which is not in the Error Store's closed enum, so `advance` on the last pipeline step raised `InvalidErrorCategory` instead of recording a rung. | high | `advance(step="delivery")` with the old map → `InvalidErrorCategory: category 'delivery' not in [...]`; with the fix → `next_rung=2, category='coding'`. Nothing outside tests calls `advance`, so the bug was latent, not user-visible. | **patched**: derive from `get_args(ErrorCategory)`; regression test asserts every `STEP_ORDER` step yields an accepted category. |
 | 2 | `harness/regression_set.py::bench_query` | Mixed metric definitions were averaged and mislabelled; the guard the code's own comment claims was absent. | high | Read of the function: `metric_def = rows[0][5]` vs `sum(r[4] for r in rows)/len(rows)`; only `distinct_contracts` was checked. | **patched**: `NonComparableSet` on mixed definitions; 2 tests. |
 | 3 | `_ensure_table` in 9 modules | Every one was a hand-copied duplicate of a migration; `run_event_log`'s had already lost an index. | medium | Derived 13 duplicated table definitions programmatically; `idx_run_events_run_id` present in migrate.py, absent from the bootstrap path. | **patched**: `migrate.ensure_tables`; test asserts bootstrapped schema == migrated schema, and was verified to *fail* when the index is simulated away. |
-| 4 | `harness/cli.py::run_command` | The ticket's first verify clause (`run --inject-failure-at coding`) names a flag that does not exist. | noted, not patched | `harness run --help` lists only `--project`/`--run-id`; nothing outside tests calls `retry_ladder.advance`, so failure injection would be **new wiring**, which this sweep's rule pushes to a new story. | **reported**: recorded here and surfaced to the operator. The other three verify clauses pass. |
+| 4 | `harness/cli.py::run_command` | The ticket's first verify clause (`run --inject-failure-at coding`) named a flag that did not exist, and nothing outside tests called `retry_ladder.advance` — so the ladder had no production caller at all. | noted, then **patched** | `harness run --help` listed only `--project`/`--run-id`; `grep` for `advance(` outside `retry_ladder` found no caller. | **patched**: `--inject-failure-at STEP` records a synthetic failure through the ladder and continues. The flag is the ladder's first production caller, so a regression in it — or in the step→category mapping it depends on — now fails a test instead of surfacing in production. Also removed a 4th copy of `STEP_ORDER` that `run_command` re-listed inline. |
 
 ## Design Notes
 
