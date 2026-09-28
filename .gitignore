@@ -47,6 +47,11 @@ var/herdr/stream.jsonl
 # Project YAMLs + run directories are staged at runtime (`harness serve --demo`,
 # `launch_step`); only the layer skeletons are source.
 var/projects/
+# Signed Acknowledgement records. `harness run` and the dashboard write these at
+# runtime (`acknowledgement_store.ACKNOWLEDGEMENTS_DIR`); they are signed state,
+# not source. Without this the directory sits untracked-but-unignored, one
+# `git add -A` away from publishing run records.
+acknowledgements/
 
 # Operator Dashboard SPA (dashboard/)
 node_modules/
