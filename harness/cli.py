@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import typer
 
@@ -325,7 +326,6 @@ def serve_command(
     # Demo: stage python-hello + record a sample regression set + a
     # sample Herdr event; print the seed summary.
     import shutil as _shutil
-    from harness.acknowledgement_store import DEFAULT_DB as _ACK_DB
     from harness.cost_ledger import (
         DEFAULT_DB as _COST_DB,
         append as _cost_append,
@@ -335,10 +335,10 @@ def serve_command(
         DEFAULT_MIRROR as _HERDR_MIRROR,
         tail as _herdr_tail,
     )
-    from harness.regression_set import DEFAULT_DB as _REG_DB, add as _reg_add
+    from harness.regression_set import DEFAULT_DB as _REG_DB
 
     # Reset cost / regression DBs so the demo is reproducible.
-    for p in (_COST_DB, _REG_DB, _ACK_DB, _HERDR_MIRROR):
+    for p in (_COST_DB, _REG_DB, _HERDR_MIRROR):
         if p.exists():
             p.unlink()
         for ext in (".sqlite-wal", ".sqlite-shm"):
@@ -352,17 +352,18 @@ def serve_command(
     dst.parent.mkdir(parents=True, exist_ok=True)
     _shutil.copy(src, dst)
 
-    # Seed a sample regression set.
-    for i in range(4):
-        _reg_add(
-            f"DEMO_RUN_{i}",
-            step="coding",
-            project_size_tier="trivial",
-            artifact_contract_version="v1",
-            metric_value=0.92 + i * 0.01,
-            metric_definition="fr_passed/fr_total",
-            added_by="cli",
-        )
+    # Seed a sample regression set (Story 3.8 substrate — 4 deterministic
+    # synthetic runs on the python-hello fixture).
+    import importlib.util as _importlib
+    _loader_path = (
+        Path("tests/fixtures/regression-set/python-hello-4-runs/load.py")
+    )
+    _spec = _importlib.spec_from_file_location(
+        "_regression_fixture_loader", _loader_path
+    )
+    _loader = _importlib.module_from_spec(_spec)
+    _spec.loader.exec_module(_loader)  # type: ignore[union-attr]
+    seeded = _loader.load()
 
     # Seed a sample cost record.
     _cost_append(
@@ -385,6 +386,6 @@ def serve_command(
     ingested = _herdr_tail()
 
     typer.echo(
-        f"serve --demo OK: python-hello seeded; 4 regression runs; "
+        f"serve --demo OK: python-hello seeded; {seeded} regression runs; "
         f"1 cost record; {ingested} Herdr event(s) tailed"
     )

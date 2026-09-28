@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-import ulid
 
 from harness.cost_ledger import (
     DEFAULT_DB,
@@ -55,13 +54,18 @@ def test_sum_for_run_filters_by_run():
     assert sum_for_run("p1", "R2") == 1500
 
 
-def test_append_idempotent_under_same_ulid_collision_raises_immutable():
+def test_append_idempotent_under_same_ulid_collision_raises_immutable(monkeypatch):
+    """Two appends that produce the same ULID: the second raises.
+
+    Uses pytest's `monkeypatch` so `ULID.from_datetime` is restored to the
+    real classmethod after the test. A manual save/restore reads the
+    already-patched attribute and silently makes the patch permanent,
+    which poisons every later ULID in the process (artifact_store,
+    acknowledgement_store, ...).
+    """
     import harness.cost_ledger as cl
     fixed = cl.ulid.ULID()
-    cl.ulid.ULID.from_datetime = lambda dt: fixed
-    try:
-        append("p1", run_id="R1", tokens_in=10, tokens_out=5)
-        with pytest.raises(CostLedgerImmutable):
-            append("p1", run_id="R1", tokens_in=20, tokens_out=10)
-    finally:
-        cl.ulid.ULID.from_datetime = ulid.ULID.from_datetime
+    monkeypatch.setattr(cl.ulid.ULID, "from_datetime", lambda dt: fixed)
+    append("p1", run_id="R1", tokens_in=10, tokens_out=5)
+    with pytest.raises(CostLedgerImmutable):
+        append("p1", run_id="R1", tokens_in=20, tokens_out=10)
