@@ -171,6 +171,95 @@ _MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events (run_id)
         """.strip(),
     ),
+    (
+        7,
+        "add error_records table (Story 3.1)",
+        """
+        CREATE TABLE error_records (
+            record_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            step TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            root_cause_json TEXT NOT NULL,
+            correction_json TEXT NOT NULL,
+            retry_json TEXT NOT NULL,
+            result TEXT NOT NULL,
+            recorded_at TEXT NOT NULL,
+            hash TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        8,
+        "add error_records indexes (Story 3.1)",
+        """
+        CREATE INDEX IF NOT EXISTS idx_error_records_lookup
+            ON error_records (project_id, run_id, step)
+        """.strip(),
+    ),
+    (
+        9,
+        "add regression set + benchmark tables (Story 3.4)",
+        """
+        CREATE TABLE regression_set_runs (
+            run_event_id TEXT PRIMARY KEY,
+            step TEXT NOT NULL,
+            project_size_tier TEXT NOT NULL,
+            artifact_contract_version TEXT NOT NULL,
+            metric_value REAL NOT NULL,
+            metric_definition TEXT NOT NULL,
+            added_at TEXT NOT NULL,
+            removed_at TEXT,
+            added_by TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        10,
+        "add benchmark_runs table (Story 3.4)",
+        """
+        CREATE TABLE benchmark_runs (
+            benchmark_id TEXT PRIMARY KEY,
+            step TEXT NOT NULL,
+            project_size_tier TEXT NOT NULL,
+            artifact_contract_version TEXT,
+            metric_definition TEXT NOT NULL,
+            computed_at TEXT NOT NULL,
+            result_json TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        11,
+        "add regression_set_removals table (Story 3.7)",
+        """
+        CREATE TABLE regression_set_removals (
+            removed_run_id TEXT PRIMARY KEY,
+            removed_at TEXT NOT NULL,
+            removed_by TEXT NOT NULL,
+            reason TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        12,
+        "add skill_bumps table (Story 3.5)",
+        """
+        CREATE TABLE skill_bumps (
+            bump_id TEXT PRIMARY KEY,
+            skill_name TEXT NOT NULL,
+            new_version TEXT NOT NULL,
+            previous_version TEXT NOT NULL,
+            state TEXT NOT NULL,
+            registered_at TEXT NOT NULL,
+            promoted_at TEXT,
+            promoted_by TEXT,
+            regression_run_id TEXT
+        )
+        """.strip(),
+    ),
 ]
 
 

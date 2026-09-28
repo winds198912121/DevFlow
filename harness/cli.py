@@ -239,3 +239,34 @@ def swap_command(
     except _UnderLock as e:
         typer.echo(f"project_locked: {e}", err=True)
         raise typer.Exit(code=1)
+
+
+@app.command("bench")
+def bench_command(
+    step: str = typer.Option(..., "--step", help="step name (e.g. coding)."),
+    tier: str = typer.Option(
+        "trivial", "--tier",
+        help="project_size_tier (trivial | session | epic | project).",
+    ),
+    contract: str = typer.Option(
+        None, "--contract", help="artifact_contract_version (optional).",
+    ),
+    k: int = typer.Option(3, "--k", help="comparable-run floor."),
+) -> None:
+    """Query the benchmark for a (step, tier) cell (Story 3.4 + 3.9)."""
+    from harness.regression_set import (
+        bench_query as _bench_query,
+        BenchInsufficient as _Insufficient,
+    )
+
+    try:
+        rec = _bench_query(step, tier, contract, k=k)
+    except _Insufficient as e:
+        typer.echo(f"regression_set_insufficient: {e}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(
+        f"bench OK: step={rec.step} tier={rec.project_size_tier} "
+        f"contract={rec.artifact_contract_version} "
+        f"metric_summary={rec.metric_summary:.3f} "
+        f"contributing_runs={len(rec.contributing_runs)}"
+    )
