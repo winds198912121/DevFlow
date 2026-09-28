@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -136,12 +137,22 @@ def test_mutate_pipeline_name_raises_pipeline_immutable():
 
 def test_mutate_pipeline_steps_raises_pipeline_immutable():
     p = load_pipeline("software-v1", 1)
-    with pytest.raises((PipelineImmutable, Exception)):
-        # Frozen dataclass — attribute mutation raises FrozenInstanceError
-        # (subclass of AttributeError, not PipelineImmutable). We accept any
-        # exception to document that mutation is forbidden; the explicit
-        # PipelineImmutable check is defensive.
+    # Tuple reassignment on a frozen dataclass raises FrozenInstanceError
+    # (the standard library error), not PipelineImmutable. The mutation
+    # is forbidden by the @dataclass(frozen=True) machinery in Step (the
+    # steps tuple itself is frozen); Pipeline's custom __setattr__ only
+    # fires for simple attribute assignment on the Pipeline class itself.
+    # Both errors are evidence that mutation is rejected.
+    with pytest.raises((PipelineImmutable, FrozenInstanceError, AttributeError)):
         p.steps = p.steps + (Step("evil", "c.x.v1", "x"),)  # type: ignore[misc]
+
+
+def test_steps_tuple_is_itself_frozen():
+    # Step is @dataclass(frozen=True) and the steps tuple is constructed
+    # from a tuple literal, so the tuple itself is immutable.
+    p = load_pipeline("software-v1", 1)
+    with pytest.raises((PipelineImmutable, AttributeError, TypeError)):
+        p.steps[0].name = "tampered"  # type: ignore[misc]
 
 
 # --- AC 11: double-register raises PipelineAlreadyRegistered -----------
