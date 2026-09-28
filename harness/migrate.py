@@ -112,6 +112,35 @@ _MIGRATIONS: list[tuple[int, str, str]] = [
         )
         """.strip(),
     ),
+    (
+        3,
+        "add project_edit_locks table (AD-18)",
+        """
+        CREATE TABLE project_edit_locks (
+            project_id TEXT PRIMARY KEY,
+            acquired_at TEXT NOT NULL,
+            acquired_by TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+        """.strip(),
+    ),
+    (
+        4,
+        "add project_yaml_edits table (Story 2.9, Run Event Log stub)",
+        """
+        CREATE TABLE project_yaml_edits (
+            project_id TEXT NOT NULL,
+            edit_id TEXT PRIMARY KEY,
+            prev_yaml_hash TEXT,
+            new_yaml_hash TEXT,
+            edited_by TEXT NOT NULL,
+            edited_at TEXT NOT NULL,
+            intent TEXT NOT NULL,
+            prev_executor_tuple TEXT,
+            new_executor_tuple TEXT
+        )
+        """.strip(),
+    ),
 ]
 
 

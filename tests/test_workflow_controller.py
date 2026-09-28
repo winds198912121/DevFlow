@@ -450,6 +450,27 @@ def test_run_avoids_reinvoking_already_completed_steps(
     assert len(_swap_human_adapter.calls) == 6
 
 
+def test_run_cross_invocation_idempotency_via_marker_files(
+    human_project, db, _swap_human_adapter
+):
+    """Story 2.9: a second `run(project, "R1")` against the same `(project, run_id)`
+    re-uses the prior run's `.locked` markers and does NOT re-invoke any
+    adapter (CAP-2 cross-invocation climax; the operator can swap
+    executors between the two runs and the second call leaves the prior
+    Design steps untouched).
+    """
+    # First run: every adapter invoked once.
+    run(human_project, "R1", db=db)
+    initial_calls = list(_swap_human_adapter.calls)
+    assert len(initial_calls) == 6
+
+    # Second run with the same (project, run_id): the marker-file short-circuit
+    # in `launch_step` short-circuits every step. Zero new adapter calls.
+    _swap_human_adapter.calls.clear()
+    run(human_project, "R1", db=db)
+    assert _swap_human_adapter.calls == []
+
+
 # --- AC: artifacts are sealed per step ------------------------------------
 
 

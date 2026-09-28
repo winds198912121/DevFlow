@@ -274,8 +274,11 @@ def launch_step(
     `completed` is the in-memory set of step names already executed during
     the current `run()` invocation. `run()` passes the set it has been
     building; a direct `launch_step` caller passes `None`. Cross-invocation
-    idempotency (a second `run()` with the same `run_id`) is owned by
-    Story 2.9 (`swap_executor_take_lock`); v1 does not implement it.
+    idempotency (a second `run()` with the same `run_id`) is implemented
+    by the `_step_artifact_sealed` short-circuit at the top of this
+    function: if the per-step `.locked` marker exists, the function
+    returns the existing `StepStatus` without re-invoking the adapter.
+    Story 2.9 added this path for the CAP-2 climax (swap_executor + re-run).
     """
     if step_name not in STEP_ORDER:
         raise UnknownStep(f"unknown_step: {step_name}")
@@ -291,8 +294,21 @@ def launch_step(
             f"project_missing_executor: step {step_name!r} has no executor in project"
         )
 
-    # In-memory idempotency: if `run()` already completed this step, skip
-    # re-invocation. Cross-invocation idempotency lives in Story 2.9.
+    # Cross-invocation idempotency (Story 2.9): if a prior `run()`
+    # already sealed this step (the `.locked` marker file exists at
+    # `var/projects/<pid>/runs/<rid>/<step>/.locked`), skip the adapter
+    # dispatch entirely. This is the CAP-2 cross-invocation story: the
+    # operator runs, swaps the Coding executor, runs again — the second
+    # run re-uses the prior Design artifacts (markers present) and only
+    # invokes the new Coding executor (marker absent).
+    if _step_artifact_sealed(db, project.project_id, run_id, step_name):
+        return step_status(
+            db, project.project_id, run_id, step_name,
+            project_size=project.size,
+        )
+
+    # In-memory idempotency: if `run()` already completed this step in the
+    # current Python call, skip re-invocation.
     if completed is not None and step_name in completed:
         return step_status(
             db, project.project_id, run_id, step_name,
