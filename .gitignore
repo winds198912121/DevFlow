@@ -25,9 +25,11 @@ _bmad/*.log
 # Office temp files
 ~$.*
 
-# Resources not needed in git (large, not part of harness code)
-*.docx
-*.xlsx
+# The BMAD training documents (3 .docx manuals + a .xlsx skill catalog +
+# Matt Pocock's manual) ARE tracked: they are part of the project's material and
+# total ~260 KB. There is no blanket *.docx / *.xlsx rule — a genuinely large
+# Office file should be excluded by name rather than by extension, so it is an
+# explicit decision instead of a silent one.
 
 # Harness-generated runtime artifacts (first-run creates; not source).
 # The canonical stores (var/harness.sqlite, var/herdr_mirror.sqlite) and the
