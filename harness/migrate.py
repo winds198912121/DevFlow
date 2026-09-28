@@ -164,10 +164,10 @@ def run_migrations(db: sqlite3.Connection) -> None:
     current = _current_version(db)
     max_known = _MIGRATIONS[-1][0] if _MIGRATIONS else 0
 
-    if current > max_known:
-        raise FutureSchemaVersion(current, max_known)
-
-    # Verify all already-applied migrations match their recorded hash.
+    # Verify all already-applied migrations match their recorded hash BEFORE
+    # the future-schema check. If a DB at schema_version=3 has a corrupted
+    # v1 row, the operator needs the corruption report (more actionable)
+    # before the future-schema report ("upgrade the harness").
     applied = _applied_versions(db)
     for version, _desc, sql in _MIGRATIONS:
         if version > current:
@@ -175,10 +175,12 @@ def run_migrations(db: sqlite3.Connection) -> None:
         sql_hash = _compute_sql_hash(sql)
         recorded = applied.get(version)
         if recorded is None:
-            # Version > current but no row? Can't happen if current = MAX(version).
             continue
         if recorded != sql_hash:
             raise MigrationCorrupted(version, recorded, sql_hash)
+
+    if current > max_known:
+        raise FutureSchemaVersion(current, max_known)
 
     # Apply any pending migrations.
     now = datetime.now(timezone.utc).isoformat()
