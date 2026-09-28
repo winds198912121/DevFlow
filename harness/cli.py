@@ -382,21 +382,24 @@ def herdr_tail_command() -> None:
 
 @app.command("serve")
 def serve_command(
-    demo: bool = typer.Option(False, "--demo", help="seed + start the tracer bullet."),
+    demo: bool = typer.Option(
+        False, "--demo",
+        help="Seed the python-hello fixture + 4-run regression set + 1 sample "
+             "Herdr event, then exit WITHOUT serving, so it stays scriptable. "
+             "Chain it: `harness serve --demo && harness serve`.",
+    ),
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address."),
+    port: int = typer.Option(8137, "--port", help="Bind port."),
 ) -> None:
-    """Start the operator dashboard (Story 4.9 tracer bullet).
+    """Start the Operator Dashboard (FastAPI read model + the built SPA).
 
-    `--demo` seeds the python-hello fixture + 4-run regression set + 1
-    sample Herdr event, then prints the seed summary and exits. The full
-    FastAPI + Bun SPA wiring is owned by Stories 4.3 + 4.4 (deferred).
+    The API is always served; `dashboard/dist` is mounted at `/` when it has
+    been built, so one process serves both. Build it with `bun run build` in
+    `dashboard/`.
     """
     if not demo:
-        typer.echo(
-            "serve: full dashboard requires Stories 4.3 + 4.4; "
-            "use --demo for the tracer bullet path",
-            err=True,
-        )
-        raise typer.Exit(code=1)
+        _serve_dashboard(host, port)
+        return
     # Demo: stage python-hello + record a sample regression set + a
     # sample Herdr event; print the seed summary.
     import shutil as _shutil
@@ -463,3 +466,28 @@ def serve_command(
         f"serve --demo OK: python-hello seeded; {seeded} regression runs; "
         f"1 cost record; {ingested} Herdr event(s) tailed"
     )
+    typer.echo("run `harness serve` to start the dashboard on "
+               "http://127.0.0.1:8137/")
+
+
+def _serve_dashboard(host: str, port: int) -> None:
+    """Run the dashboard through the same wiring `uvicorn` uses.
+
+    Delegates to `tools.dashboard_serve.build_app` rather than re-assembling the
+    app here: that module is the composition root (AD-26 forbids `dashboard/`
+    from importing the harness, so the binding has to live outside the four
+    layer roots), and a second copy of the wiring here would drift from it.
+    """
+    import uvicorn
+
+    from tools.dashboard_serve import build_app
+
+    dash_dir = Path("dashboard") / "dist"
+    if not dash_dir.is_dir():
+        typer.echo(
+            "serve: dashboard/dist is absent — serving the API only. "
+            "Run `bun install && bun run build` in dashboard/ to build the SPA.",
+            err=True,
+        )
+    typer.echo(f"dashboard: http://{host}:{port}/   (API docs: /docs)")
+    uvicorn.run(build_app(), host=host, port=port)
