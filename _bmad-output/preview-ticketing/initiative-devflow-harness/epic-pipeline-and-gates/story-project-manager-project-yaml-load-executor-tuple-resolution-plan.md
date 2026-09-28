@@ -1,7 +1,7 @@
 ---
 title: 'Project Manager: project YAML load + executor tuple resolution'
 type: 'feature'
-ticket: '12'
+ticket: '4'
 created: '2026-09-28'
 status: 'built'
 review: 'thorough'

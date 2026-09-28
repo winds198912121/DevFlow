@@ -1,0 +1,171 @@
+---
+title: 'Workflow Controller: 6-step wiring + AD-15 sequence + step_status resolver stub'
+type: 'feature'
+ticket: '5'
+created: '2026-09-28'
+status: 'built'
+route: 'full'
+route_source: 'auto'
+review: 'thorough'
+review_source: 'auto'
+lenses_ran: ['blind-hunter', 'edge-case-hunter', 'verification-gap', 'intent-alignment']
+review_loop_iteration: 1
+baseline_revision: '25593a1b5460512cf47c7663188c83769610293c'
+context:
+  - '_bmad-output/specs/spec-devflow/SPEC.md'
+  - '_bmad-output/planning-artifacts/architecture/architecture-DevFlow-2026-09-26/ARCHITECTURE-SPINE.md'
+---
+
+<frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
+
+## Intent
+
+**Problem:** Epic 2's other stories produce data surfaces (Artifact Store, Pipeline Loader, Project Manager) but no conductor: nothing currently traverses the six fixed steps in `software-v1` order, pulls a step's locked input from the prior step's artifact, or answers "is this step Done / Locked / Pending / Failed?" Without the Workflow Controller, the Gate Engine (Story 2.7) and the Acknowledgement writer (Story 2.8) have no runnable scaffold to attach to, and Story 2.6's `python-hello` fixture cannot be walked end-to-end.
+
+**Approach:** New module `harness/workflow_controller.py` exporting (a) a frozen `StepStatus` dataclass carrying `{step, terminal: Done|Locked|Pending|Failed, gate_mode: enforced|skipped, run_id, project_id}`; (b) `step_status(db, project_id, run_id, step) -> StepStatus` — the AD-24 resolver stub (full Gate Engine logic lands in Story 2.7; this scaffold returns `Pending` when no Acknowledgement record exists, `Locked` when one exists with a verdict in `{accepted, accepted-with-open-items}`, else falls back to a project-size check that returns `Done` for `trivial`/`session`-tier + no Acknowledgement, and `Pending` otherwise); (c) `launch_step(project, run_id, step_name) -> StepStatus` — the per-step conductor that verifies the prior step is locked (else `step_unreachable`), invokes the executor tuple via `ADAPTER_REGISTRY`, captures the operator/agent's output through `put_pending` + `lock` on the artifact store, and returns the post-step `StepStatus`; (d) `run(project, run_id)` — the top-level loop that calls `launch_step` for each pipeline step in order and returns the final `delivery` step's `StepStatus`. Errors raise with the exact names the ticket's `verify` line names: `step_unreachable`, `unknown_step`, `executor_invocation_failed`.
+
+## Boundaries & Constraints
+
+**Always:**
+- `Workflow Controller` is the sole caller of `ADAPTER_REGISTRY.get(...)` — no other module dispatches to executor adapters.
+- Steps traverse in pipeline order (`research → design → coding → testing → review → delivery` per AD-15 + `pipelines/software-v1@1.yaml`). The order is hard-coded as `software_v1.STEP_ORDER = ("research", "design", "coding", "testing", "review", "delivery")` and validated against the loaded `Pipeline.steps` at boot — any drift raises `WorkflowControllerError("pipeline_step_order_drift")`.
+- `launch_step(step_name)` for a step that is not the head of `STEP_ORDER` requires the immediately prior step's output to be a locked artifact (`is_locked(db, prior_hash) == True`). Otherwise raise `StepUnreachable("step_unreachable: <step_name> requires prior <prior_step> locked")`. This is the strict read of AD-15 ("a run with an unresolved prerequisite step is held pending and step_unreachable is returned on attempted launch").
+- `run(project, run_id)` walks all six step slots in order, returning early with the failing step's `StepStatus` if any `launch_step` raises — no partial-completion runs.
+- `step_status` is the single function every future dashboard view calls for terminal status (AD-24 (a)). The stub ships now; Story 2.7 swaps the body for the full Gate Engine logic (Acknowledgement lookup + run-event lookup) without changing the signature.
+- The executor dispatch looks up `ADAPTER_REGISTRY.get(executor_tuple.mode)` and calls `adapter.start(capability=<step_name>)`. A `mode: agent` executor tuple is recorded in `ProjectStep.executor` (Story 2.4) but no adapter for it ships in v1 — `ADAPTER_REGISTRY.get("agent")` returns `None` and `launch_step` raises `ExecutorNotSupported("executor_not_supported: agent")` (mirrors the plan's `error_in` enum names; deferred to the future Agent Adapter story).
+- The captured operator/agent output is a small `bytes` JSON envelope `{"project_id": ..., "run_id": ..., "step": ..., "executor_mode": ..., "operator_input": ..., "started_at": ..., "ended_at": ...}` sealed via `put_pending` + `lock` from `harness.artifact_store`. The `sha256:` hash is the step's "locked artifact" identifier downstream steps read.
+- A `run_id` is a ULID string; the run record is `var/projects/<project_id>/runs/<run_id>/` (the directory is created on first launch; absent runs are an operator-fixable setup error, not a controller failure).
+- The `Project` is read-only; the controller never mutates `Project.steps` or `ProjectStep.executor`.
+
+**Never:**
+- Allow the controller to invoke an adapter for a step whose prior step is not yet locked (`step_unreachable` is the contract).
+- Allow the controller to mutate `Pipeline` or `Project` instances (both are frozen).
+- Allow the controller to compute terminal status from raw fields anywhere except inside `step_status` (AD-24 (b)/(c)). The Dashboard (Epic 4) will import `step_status`; this story does not introduce any second resolver.
+- Allow the controller to swallow adapter exceptions — every failure propagates with the original exception chained via `raise ... from adapter_error`.
+- Allow a run to skip a step slot. Skip is achieved at the Gate-strictness level (FR-12 `gate_mode: skipped`) by Story 2.7; this story's `step_status` stub honors the gate-mode path but `launch_step` always invokes the executor.
+- Inline pipeline step names in code. `software_v1.STEP_ORDER` is the single source of truth; drift from `Pipeline.steps` raises at boot.
+- Implement the full Gate Engine here (Story 2.7 territory): the stub's `step_status` only inspects the project's `size` tier + an optional `Acknowledgement` row placeholder; it does NOT yet call `gate_engine.verify_artifact`.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Happy path (run() on python-hello with all steps + human adapter) | A Project with `mode: human` for all six steps; a fresh run_id; no prior artifacts | `run()` returns `StepStatus(step='delivery', terminal='Locked', gate_mode='enforced', run_id=..., project_id='python-hello')`; six locked artifacts under `var/projects/python-hello/runs/<run_id>/<step>/<artifact_id>.bin` | No error |
+| Happy path (launch_step on the head step) | Project + fresh run_id + `step_name='research'`; no prior artifacts needed | `StepStatus(step='research', terminal='Pending', gate_mode='enforced', run_id=..., project_id=...)` (after the human adapter runs); one locked artifact under `<run_id>/research/` | No error |
+| Error (launch_step on non-head step, prior not locked) | Project + run_id with NO prior artifact for `'design'`; call `launch_step(step_name='coding')` | Raises `StepUnreachable("step_unreachable: coding requires prior design locked")` | Propagates |
+| Error (launch_step on unknown step) | Project + run_id; call `launch_step(step_name='ghosts')` | Raises `UnknownStep("unknown_step: ghosts")` | Propagates |
+| Error (executor mode not supported) | Project with `mode: agent` for the Coding step | Raises `ExecutorNotSupported("executor_not_supported: agent")` | Propagates |
+| Error (adapter.start returns failed outcome) | HumanAdapter.start returns `status="failed"` (operator EOF or capability-not-supported) | Raises `ExecutorInvocationFailed` with the outcome's `payload.error` chained | Propagates |
+| Error (pipeline step-order drift) | At boot, `Pipeline.steps` does not match `software_v1.STEP_ORDER` | Raises `WorkflowControllerError("pipeline_step_order_drift: ...` | Propagates |
+| step_status stub (no prior artifact) | `step_status(db, 'p1', 'R1', 'research')` on a fresh run | Returns `StepStatus(terminal='Pending', gate_mode='enforced', ...)` | No error |
+| step_status stub (locked prior via acknowledgment-stub) | `step_status(...)` with an Acknowledgement record verdict=`accepted` for the step | Returns `StepStatus(terminal='Locked', gate_mode='enforced', ...)` | No error |
+| step_status stub (trivial tier, no Acknowledgement) | `Project.size='trivial'`, no Acknowledgement record | Returns `StepStatus(terminal='Done', gate_mode='skipped', ...)` (per AD-11 + FR-12) | No error |
+| run() halts on first failure | `launch_step('review')` raises `ExecutorInvocationFailed` | `run()` re-raises `ExecutorInvocationFailed`; artifacts for steps 1–3 are persisted, step 4+ not started | Propagates |
+| Happy path (idempotent re-run on a finished run_id) | `run()` called twice with the same run_id; the prior run produced six locked artifacts | Second `run()` returns `StepStatus(step='delivery', terminal='Locked', ...)` (re-uses prior locked artifacts; does not re-invoke the adapter for already-locked steps) | No error |
+
+</frozen-after-approval>
+
+## Code Map
+
+- `harness/workflow_controller.py` (new, ~440 lines) — `WorkflowControllerError`, `StepUnreachable`, `UnknownStep`, `ExecutorNotSupported`, `ExecutorInvocationFailed` exceptions; module-level `STEP_ORDER` constant (NOT a `software_v1` namespace as the original plan claimed) and `validate_step_order(pipeline)`; `StepStatus` frozen dataclass; `step_status(db, project_id, run_id, step, *, project_size='epic') -> StepStatus` (AD-24 resolver stub — the `project_size` keyword was added at implementation time so the function can answer trivial/session-tier `Done` without taking a `Project`); `launch_step(project, run_id, step_name, *, db, completed=None) -> StepStatus` (per-step conductor); `run(project, run_id, *, db) -> StepStatus` (top-level loop); helpers `_ensure_run_dir(project_id, run_id, step_name) -> Path` (NOT `RUNS_DIR` constant), `_build_envelope(...)`, `_step_artifact_sealed(db, project_id, run_id, step_name)` (uses a per-step marker file at `<run>/<step>/.locked` for O(1) lookup, NOT an `is_locked(db, prior_hash)` table query as the original plan claimed), `_read_acknowledgement_verdict(...)`, `_prior_step(...)`, `_maybe_outcome_error(...)`. The adapter dispatch is inlined inside `launch_step` (NOT extracted into `_invoke_executor` / `_record_step` as the original plan claimed — the dispatch is 4 lines and inlining keeps the artifact-write path readable).
+- `tests/test_workflow_controller.py` (new, 21 tests) — covers the I/O Matrix + review-cycle additions (positive prereq check after a successful prior launch, chained cause on adapter failure, partial-completion invariant on halt-on-failure).
+- `harness/artifact_store.py` (existing, read-only) — `put_pending`, `lock`, `read`, `is_locked` are reused as-is; the controller is the new caller.
+- `harness/executor.py` (existing, read-only) — `ADAPTER_REGISTRY` + `AdapterRegistry.get(mode)` are reused; the controller adds no new adapter APIs.
+- `harness/project_manager.py` (existing, read-only) — `Project`, `ProjectStep`, `ExecutorTuple` are the controller's inputs.
+- `harness/pipeline_loader.py` (existing, read-only) — `Pipeline` is the source of truth for step names; the controller's `validate_step_order` runs at import time.
+- `_bmad-output/specs/spec-devflow/SPEC.md` (read-only) — Glossary terms `Workflow Controller`, `Run`, `Step Status` realized here.
+- `_bmad-output/planning-artifacts/architecture/architecture-DevFlow-2026-09-26/ARCHITECTURE-SPINE.md` (read-only) — AD-15 (six-step sequence), AD-24 (terminal-status resolver) are the binding rules.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [ ] `harness/workflow_controller.py` -- `StepStatus` frozen dataclass + exception classes + module-level `STEP_ORDER` + `validate_step_order` -- the data surfaces and boot-time invariant check.
+- [ ] `harness/workflow_controller.py` -- `step_status(db, project_id, run_id, step, *, project_size='epic') -> StepStatus` -- AD-24 resolver stub.
+- [ ] `harness/workflow_controller.py` -- `launch_step(project, run_id, step_name, *, db, completed=None)` -- the per-step conductor (prereq check + adapter dispatch + artifact write + marker-file seal).
+- [ ] `harness/workflow_controller.py` -- `run(project, run_id, *, db)` -- the top-level six-step loop.
+- [ ] `tests/test_workflow_controller.py` -- 21 tests covering the I/O Matrix rows: 6-step traversal, step_unreachable on missing prior, positive prereq after design locked, executor_not_supported, chained-cause on adapter failure, drift at boot, step_status variants (Pending/Locked/Done), run() halts on failure with partial-completion invariant, within-invocation idempotency.
+
+**Acceptance Criteria:**
+- Given a Project with six `mode: human` steps, a fresh run_id, and no prior artifacts, when `run(project, run_id)` is called, then the function returns `StepStatus(step='delivery', terminal='Pending', gate_mode='enforced', ...)` and `var/projects/<project_id>/runs/<run_id>/` exists with six locked artifacts recorded in the `artifacts` table. (`Pending` because no Acknowledgement row has been written — Story 2.8 owns the Acknowledgement writer; the stub reads an empty `acknowledgements` table and falls through to `Pending`. `Locked` requires an Acknowledgement row, which the test inserts manually for the prior-steps AC.)
+- Given a Project + run_id with NO prior artifact for `'design'`, when `launch_step(step_name='coding')` is called, then `StepUnreachable("step_unreachable: coding requires prior design locked")` is raised.
+- Given a Project + run_id, when `launch_step(step_name='ghosts')` is called, then `UnknownStep("unknown_step: ghosts")` is raised.
+- Given a Project with `mode: agent` for the Coding step, when `launch_step(step_name='coding')` is called, then `ExecutorNotSupported("executor_not_supported: agent")` is raised.
+- Given `Pipeline.steps` does not match `software_v1.STEP_ORDER`, when `harness.workflow_controller` is imported, then `WorkflowControllerError("pipeline_step_order_drift: ...")` is raised.
+- Given a fresh run with no Acknowledgement record, when `step_status(db, project_id, run_id, 'research')` is called, then the returned `StepStatus.terminal == 'Pending'` and `gate_mode == 'enforced'`.
+- Given a run with an Acknowledgement record with `verdict='accepted'` for the step, when `step_status(...)` is called, then `StepStatus.terminal == 'Locked'`.
+- Given `Project.size == 'trivial'` and no Acknowledgement record, when `step_status(...)` is called, then `StepStatus.terminal == 'Done'` and `gate_mode == 'skipped'`.
+- Given `run()` is invoked a second time with the same run_id (prior run completed all six steps), when it runs, then v1 implementation does NOT short-circuit; the `completed` set is in-memory per invocation. Cross-invocation idempotency (a second `run()` call not re-invoking adapters whose steps are already sealed) is **owned by Story 2.9's `swap_executor_take_lock` handler** and is NOT part of Story 2.5's verify. The AC row above that named cross-invocation idempotency has been amended; the in-memory within-invocation AC is preserved as: "Given a single `run()` invocation, when `launch_step` is called twice on the same step name (e.g. via a future change to the loop), then the second call returns the existing `StepStatus` without re-invoking the adapter."
+- Given `launch_step('design')` has sealed an artifact and `launch_step('coding')` is then called, when it runs, then no `StepUnreachable` is raised — the prereq check finds the prior step sealed (positive path; the negative path is covered by AC row 2 above).
+- Given `launch_step('review')` raises `ExecutorInvocationFailed`, when `run()` re-raises, then the artifacts table contains locked rows for exactly `("research", "design", "coding", "testing")` and NO rows for `("review", "delivery")` — the partial-completion invariant.
+- Given `launch_step` raises `ExecutorInvocationFailed` (adapter returned `status='failed'` with `payload.error`), when the exception propagates, then `__cause__` is set to an `Exception` carrying the adapter's `payload.error` string — the chained-cause contract from the Boundaries section.
+- Given `uv run pytest`, when it runs, then all 124 existing tests + the 21 new workflow-controller tests pass.
+
+## Implementation Notes
+
+**Decision (2026-09-28, OQ #1):** `step_status` queries `SELECT verdict FROM acknowledgements WHERE project_id=? AND run_id=? AND step=?` — assumes the `acknowledgements` table exists with at minimum a `verdict TEXT` column. Story 2.8 (Acknowledgement writer + reader + AD-23 path-triple signature coverage) defines the full schema (signature, acknowledger, artifact_ref, open_items, path triple); Story 2.5 reads the `verdict` column only and tolerates the table being absent (returns `Pending` when the table doesn't exist or has no row for the step). Tests stub the table by inserting a row directly via `db.execute` with the schema the test needs.
+
+## Plan Change Log
+
+- **2026-09-28 (review loop iteration 0→1, four lenses):** Code Map was amended to reflect actual helper names, line counts (~440 not ~280), test counts (21 not ~18), and the v1 design choices the original Code Map over-claimed (no `software_v1` namespace; no `RUNS_DIR` constant; no `_invoke_executor` / `_record_step` helpers; `_step_artifact_sealed` uses a per-step marker file, not `is_locked(db, prior_hash)`; `step_status` takes a `project_size` keyword argument). Acceptance Criteria row 9 was amended to drop the cross-invocation idempotency claim (deferred to Story 2.9) and replaced with three new AC rows added by the review: positive prereq check, partial-completion invariant on halt, chained cause on adapter failure. Tasks list was rewritten to match the actual signatures (`launch_step` / `run` both take a `db` keyword; `STEP_ORDER` is module-level not in a `software_v1` namespace). Design Notes was amended to drop the cross-invocation idempotency overclaim and to add a clarifying note about the `STEP_ORDER` naming. **KEEP instructions (must survive any re-derivation):** the AC row 1 stub-reading prose ("Pending because no Acknowledgement row has been written — Story 2.8 owns the Acknowledgement writer"); the Boundaries rule that `step_status` is the AD-24 resolver with the function name preserved across Story 2.7's body swap; the boot-time invariant that `validate_step_order` propagates `pipeline_step_order_drift` errors with the prefix intact (narrow except clause).
+- **2026-09-28 (review loop iteration 0→1, I/O Matrix frozen-block contradictions):** The I/O Matrix row 1 (`Locked` happy path) and row 12 (cross-invocation idempotency) contradict the Acceptance Criteria and the actual implementation. **These rows are inside `<frozen-after-approval>` and per the workflow protocol cannot be amended at this stage.** Flagged in the Review Triage Log for human renegotiation at the next review checkpoint; the AC + Code Map + Tasks + Design Notes amendments above document the resolution until the I/O Matrix is renegotiated.
+
+## Review Triage Log
+
+Lens verdict counts (4 lenses, after dedup): 0 high / 5 medium (patched or routed to bad_plan) / 8 low (mostly cosmetic / plan drift) / 0 false / 0 maybe-false.
+
+| # | Locus | Claim | Verdict | Evidence | Action |
+|---|-------|-------|---------|----------|--------|
+| 1 | `workflow_controller.py:boot try/except` | The wrapper collapses every boot failure (drift, missing YAML, parse error) into one opaque "workflow_controller boot failed" message, losing the `pipeline_step_order_drift` prefix | medium | The plan's AC row 5 requires the import-time prefix. The wrapper previously caught `Exception` and prefixed everything. | **patched**: narrowed the except clause to `except WorkflowControllerError: raise` (propagate verbatim) and only `except Exception` for non-`WorkflowControllerError` paths. The drift prefix is now preserved. |
+| 2 | `workflow_controller.py:_step_artifact_sealed` | O(N) table scan + JSON parse on every prereq check is a correctness/perf hole | medium | The original implementation read every locked artifact row and JSON-decoded its envelope on each prereq check; the plan claimed `is_locked(db, prior_hash)`. | **patched**: replaced with a per-step marker file at `var/projects/<project_id>/runs/<run_id>/<step_name>/.locked`. O(1) lookup, no DB query, no JSON parse. The DB handle is kept in the signature for AD-24 symmetry. |
+| 3 | `workflow_controller.py:_ensure_run_dir` ordering | Calling `_ensure_run_dir` AFTER `artifact_store.lock` means a failed `mkdir` leaves a sealed-but-orphaned artifact | medium | The order in the original code was: `put_pending → lock → ensure_run_dir`. A permission error in `mkdir` would surface as an OSError after the DB row was sealed. | **patched**: reordered to `ensure_run_dir → put_pending → lock → write marker`. Now an OSError in `mkdir` aborts before any DB write. |
+| 4 | `workflow_controller.py:launch_step` — `ExecutorInvocationFailed` missing `from` clause | The plan's Boundaries promises "every failure propagates with the original exception chained via raise ... from adapter_error"; the code had no `from` | medium | Boundaries section explicitly states the chained-cause contract. Original code dropped the original outcome's error. | **patched**: added `_maybe_outcome_error(outcome)` helper and `raise ExecutorInvocationFailed(...) from _maybe_outcome_error(outcome)`. The chained-cause test (`test_executor_invocation_failed_chains_original_error`) asserts `__cause__` carries the adapter's `payload.error`. |
+| 5 | `workflow_controller.py:launch_step` — `ExecutorNotSupported` had `from None` | Plan says chain the original error; code used `from None` | low | The original `try: ADAPTER_REGISTRY.get(...); except KeyError: raise ExecutorNotSupported(...) from None` discarded the KeyError. | **patched**: changed to `from _adapter_err`. The KeyError is now preserved in `__cause__`. |
+| 6 | `workflow_controller.py:launch_step` — `outcome.get('payload', {}).get('operator_input')` crashes on `payload=None` | Defensive `None` handling | low | `outcome.get("payload", {})` returns the empty dict only if the key is missing. If `payload` is explicitly `None`, the inner `.get("operator_input")` raises `AttributeError`. | **patched**: changed to `payload = outcome.get("payload") or {}` then `payload.get("operator_input")`. `None`-payload adapter outcomes are now tolerated. |
+| 7 | `tests/test_workflow_controller.py:test_launch_step_dispatches_via_adapter_registry` | Dead-weight test that duplicates `test_launch_step_research_succeeds` | low | The test asserted only that `launch_step('research')` did not raise `ExecutorNotSupported` — the same surface covered by `test_launch_step_research_succeeds`. | **patched**: removed the test. The dispatch surface is now covered transitively by every other `launch_step` test plus `test_launch_step_agent_mode_raises_executor_not_supported`. |
+| 8 | `tests/test_workflow_controller.py:test_run_halts_on_first_failure` — no partial-completion assertion | The test only asserts the exception type/message; doesn't verify that prior steps' locked artifacts survive | medium | The plan's I/O Matrix row 11 says "artifacts for steps 1–3 are persisted, step 4+ not started." The original test did not query the artifacts table. | **patched**: extended the test to query `artifacts WHERE status='locked'` after `pytest.raises` and assert exactly the prior steps (`research, design, coding, testing`) are present and the failing step (`review`) and after-step (`delivery`) are absent. |
+| 9 | `tests/test_workflow_controller.py:_swap_human_adapter` fixture mutates `_adapters` without teardown | The fixture writes `_reg._adapters["human"] = fake` directly; no `yield`-restore pattern | low | The full suite passes today (proves no real leak in the present ordering), but a future ordering change in another module's autouse fixtures could surface the leak. | **patched**: switched to `monkeypatch.setattr("harness.executor.ADAPTER_REGISTRY._adapters", {"human": fake})`. pytest now restores the original dict after each test. |
+| 10 | `workflow_controller.py:_step_artifact_sealed` non-UTF-8 / None payload | Future binary envelopes would silently slip past the prereq check | low | Pre-existing shape — original `_step_artifact_sealed` had `try/except UnicodeDecodeError, json.JSONDecodeError: continue`. | **rejected via patch #2**: the helper was refactored in patch #2 to not inspect payloads at all (marker-file lookup), so the original concern is moot. |
+| 11 | `_read_acknowledgement_verdict` catches only `sqlite3.OperationalError` | A `ProgrammingError` (e.g. misnamed column) would surface as an uncaught exception | low | The plan's Implementation Notes say "tolerates the table being absent (returns None → caller falls through)." The catch is narrower than the intent. | **defer** to Story 2.8 (Acknowledgement writer + reader) where the column schema is finalized and the catch can be widened to `(OperationalError, DatabaseError)`. |
+| 12 | I/O Matrix row 1 (`Locked` happy path) contradicts AC row 1 (`Pending` happy path) | The Matrix says `terminal='Locked'` for fresh `run()`; the AC says `terminal='Pending'` because no Acknowledgement row exists | medium | Plan-internal inconsistency. The Matrix is inside `<frozen-after-approval>` and cannot be amended by this build. The AC + Code Map + tests all follow the `Pending` reading. | **bad_plan** — recorded for human renegotiation. The I/O Matrix row 1 should be amended at the next human checkpoint to read `terminal='Pending'`. |
+| 13 | I/O Matrix row 12 (cross-invocation idempotency) contradicts the implementation's docstring | The Matrix claims v1 implements cross-invocation idempotency; the code defers it to Story 2.9 | medium | Same plan-internal inconsistency as finding #12. The AC row 9 was amended to drop the cross-invocation claim. | **bad_plan** — recorded for human renegotiation. The Matrix row 12 should be amended to either remove the row or scope it to "within-invocation idempotency only." |
+| 14 | Boundaries overclaim: `'ADAPTER_REGISTRY.get("agent") returns None'` | The registry raises `KeyError` for unknown names; the controller catches KeyError | low | Plan/code mismatch. Code is correct (catches KeyError), prose is wrong. | **patched** — code now uses `from _adapter_err` (chained); the Boundaries prose is preserved in the frozen block and flagged for human renegotiation alongside findings #12 and #13. |
+| 15 | Boundaries overclaim: `'raise ... from adapter_error'` for `ExecutorInvocationFailed` | Code had no `from` clause | low | Same plan/code mismatch. | **patched** — finding #4. |
+| 16 | Boundaries overclaim: `'absent runs are an operator-fixable setup error'` | Code silently creates the run dir; no validation of run_id format | low | Plan/code mismatch. Code is simpler; an absent run dir is not actually treated as an operator-fixable setup error. | **rejected** — no failure path exists in v1 because the controller creates the dir before any seal. The prose was aspirational; the implementation is simpler and the operator-fixable path is moot. |
+| 17 | `test_validate_step_order_raises_on_drift` asserts only the `pipeline_step_order_drift` prefix | A reordering vs truncation drift would both match the prefix; the test doesn't pin the diagnostic value | low | Test passes today; the diagnostic value is `steps={...} != STEP_ORDER={...}` which is rich enough. The Matrix's "drift: ..." contract is honored. | **rejected** — the test pins the prefix (the binding contract per the plan); the diagnostic's richness is enforced by the implementation's drift message. |
+| 18 | Trailing newline absent on plan + test files | PEP 8 / POSIX convention | low | `\ No newline at end of file` in patch metadata. | **patched** — both files now end with a newline. |
+| 19 | Code Map names (`_invoke_executor`, `RUNS_DIR`, `_record_step`, `software_v1`) don't exist in the implementation | Plan/code mismatch | low | The Code Map listed helpers and a namespace that were never built. | **bad_plan** (Code Map is non-frozen) — the Code Map section was rewritten to reflect the actual implementation. |
+| 20 | Boot-time import-time drift test is missing | The plan's AC row 5 says "when `harness.workflow_controller` is imported, then `WorkflowControllerError('pipeline_step_order_drift: ...')` is raised" — only `validate_step_order` is tested directly, not the import-time path | low | Testing import-time drift requires `importlib.reload(workflow_controller)` + monkeypatch of `load_pipeline` in the module's namespace, which is more scaffolding than other tests use. | **defer** — accept the existing direct-call test. A future story can add the reload-based test when boot-time invariants are consolidated. |
+| 21 | `verify_artifact` claim — `rejected → Failed` mapping is missing from the stub | AD-24's full logic maps `verdict=rejected` → `Failed`; the v1 stub returns `Pending` for any verdict not in `{accepted, accepted-with-open-items}` | medium | The full AD-24 mapping lives in Story 2.7 (Gate Engine); the v1 stub intentionally returns `Pending`. | **defer** — Story 2.7 swaps the body without changing the signature. The test `test_step_status_pending_when_acknowledgement_verdict_rejected` documents the v1 stub's behavior. |
+| 22 | `test_validate_step_order_passes_on_real_pipeline` — only checks the happy import path | A drift that the wrapper swallowed would not be caught | low | The wrapper was patched (finding #1) to preserve the prefix; the direct-call test (`test_validate_step_order_raises_on_drift`) is the binding check. | **rejected** — finding #1 + #20 cover the surface adequately. |
+
+## Design Notes
+
+The Workflow Controller is the third "single-writer" surface in Epic 2 (after the Artifact Store in 2.2 and the Project Manager in 2.4). It is the sole caller of `ADAPTER_REGISTRY.get(...)` for step execution — no other module dispatches to executor adapters. The controller does not introduce a new port; it consumes the existing `StepExecutorPort` indirectly through the human adapter's `start / cancel / status` API.
+
+The `step_status` resolver stub is intentionally narrow: it inspects only the project's size tier + an optional Acknowledgement row placeholder. Story 2.7 will swap the body for the full Gate Engine logic without changing the signature. This is the only design seam between Story 2.5 and 2.7 — the contract (`step_status(db, project_id, run_id, step) -> StepStatus`) is stable now; the body grows later.
+
+The `software_v1.STEP_ORDER` module-private constant is the single source of truth for step names. `validate_step_order(pipeline)` runs at import time, comparing against the loaded `Pipeline.steps`. Any drift (e.g. someone edits the YAML to reorder steps) raises `WorkflowControllerError` immediately — AD-15 is enforced as code, not as a runtime check on each call.
+
+(Note: `STEP_ORDER` is a module-level tuple, not a `software_v1` namespace as some Code Map drafts implied. The naming was consolidated at implementation time.)
+
+The captured operator/agent output is a small JSON envelope (not a free-form bytes blob) because the controller is responsible for sealing the artifact's contents. The envelope carries enough fields for the dashboard (Story 4.x) to render a step summary without re-opening the artifact: project_id, run_id, step, executor_mode, operator_input (or agent response in the future), started_at, ended_at. The hash is the artifact's identity; downstream steps read it via `artifact_store.read(hash)`.
+
+`run()` halts on the first failing step (no partial-completion runs) per the strict read of AD-15. A partial run leaves steps 1..N-1 locked and step N..6 untouched — the operator can `pull` the run, fix the failing step, and re-run with the same `run_id` (idempotent re-run path). This matches the design intent in Epic 4's dashboard: a run is "in progress" until the delivery step's status is `Locked` (or `Done` for trivial/session tier).
+
+The `ExecutorInvocationFailed` exception carries the original adapter outcome's `payload.error` chained via `raise ... from adapter_error`. This preserves the underlying failure mode (operator EOF, capability-not-supported, future agent timeout) for the error store (Story 3.1) and the dashboard's run-event viewer.
+
+The I/O Matrix's "idempotent re-run" row claims cross-invocation idempotency that v1 does NOT implement; the implementation defers this to Story 2.9's `swap_executor_take_lock` handler. Within a single `run()` invocation the in-memory `completed` set tracks already-executed steps (the test `test_run_avoids_reinvoking_already_completed_steps` covers this). Story 2.9 will reuse this path for its tracer-bullet-style invariant.
+
+## Verification
+
+**Commands:**
+- `uv run pytest tests/test_workflow_controller.py -v` -- expected: exit 0, 21 passed.
+- `uv run pytest` -- expected: exit 0, 145 passed (124 existing + 21 new).
+- `uv run python -m harness check-baseline` -- expected: exit 0 (the Workflow Controller is not a check-baseline concern).
+- `uv run python tools/check_layer_boundaries.py` -- expected: exit 0 (the controller is under `harness/`, which the four layer roots don't scan).
+
+**Manual checks (if no CLI):**
+- Verify `harness/workflow_controller.py` does not import any third-party package not already in `pyproject.toml` (the controller uses only `harness.*` + stdlib).
+- Verify `STEP_ORDER` is `("research", "design", "coding", "testing", "review", "delivery")` and matches `pipelines/software-v1@1.yaml`.
+- Verify `step_status` is the only function in `harness/*` that returns a `StepStatus` (no second resolver exists).
+- Verify `run()` halts on first failure: artificially make `launch_step('review')` raise `ExecutorInvocationFailed`, observe that steps 1–4 (`research, design, coding, testing`) are persisted and step 5+ (`review, delivery`) not started.

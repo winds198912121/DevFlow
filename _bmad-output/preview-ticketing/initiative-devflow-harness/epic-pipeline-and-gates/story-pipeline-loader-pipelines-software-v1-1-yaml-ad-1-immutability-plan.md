@@ -1,7 +1,7 @@
 ---
 title: 'Pipeline loader (pipelines/software-v1@1.yaml) + AD-1 immutability + AD-16 read-only'
 type: 'feature'
-ticket: '11'
+ticket: '3'
 created: '2026-09-28'
 status: 'built'
 review: 'thorough'

@@ -1,7 +1,7 @@
 ---
 title: 'Artifact Store: content-hash + lock + read API'
 type: 'feature'
-ticket: '10'
+ticket: '2'
 created: '2026-09-28'
 status: 'built'
 review: 'thorough'

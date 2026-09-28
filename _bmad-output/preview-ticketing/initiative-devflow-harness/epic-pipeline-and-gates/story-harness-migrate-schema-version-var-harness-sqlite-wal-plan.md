@@ -1,7 +1,7 @@
 ---
 title: 'harness.migrate + schema_version + var/harness.sqlite (WAL)'
 type: 'feature'
-ticket: '9'
+ticket: '1'
 created: '2026-09-28'
 status: 'built'
 review: 'thorough'
