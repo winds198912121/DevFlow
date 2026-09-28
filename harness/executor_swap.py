@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness.canonical import canonical_sha256
+from harness import migrate as _migrate
 from harness.project_edit_lock import (
     DEFAULT_DB,
     ProjectLocked,
@@ -111,26 +112,13 @@ def _hash_yaml(project_id: str) -> str:
 
 
 def _ensure_edits_table(db: sqlite3.Connection) -> None:
-    """Make sure the `project_yaml_edits` table exists (mirrors the
-    migration #4 SQL). Used by callers that open DEFAULT_DB before
-    `migrate.run_migrations` has been invoked.
+    """Create `project_yaml_edits` for callers that have not run migrations.
+
+    Used by callers that open DEFAULT_DB before `migrate.run_migrations` has
+    been invoked. The DDL comes from `_MIGRATIONS`, so it cannot drift from the
+    migrated schema.
     """
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS project_yaml_edits (
-            project_id TEXT NOT NULL,
-            edit_id TEXT PRIMARY KEY,
-            prev_yaml_hash TEXT,
-            new_yaml_hash TEXT,
-            edited_by TEXT NOT NULL,
-            edited_at TEXT NOT NULL,
-            intent TEXT NOT NULL,
-            prev_executor_tuple TEXT,
-            new_executor_tuple TEXT
-        )
-        """.strip()
-    )
-    db.commit()
+    _migrate.ensure_tables(db, "project_yaml_edits")
 
 
 def _open_db(db: Path) -> sqlite3.Connection:

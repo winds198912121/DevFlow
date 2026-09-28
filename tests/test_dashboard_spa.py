@@ -24,10 +24,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from harness import acknowledgement_store, error_store, project_manager, run_event_log, skill_bump_registry
-from harness.dashboard_service import HarnessDashboardService
+from harness import acknowledgement_store, error_store, run_event_log, skill_bump_registry
+from tests.conftest import EPIC_YAML
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD = PROJECT_ROOT / "dashboard"
@@ -36,25 +35,6 @@ TERMINAL_STATUS_LINT = PROJECT_ROOT / "tools" / "check_terminal_status.py"
 needs_bun = pytest.mark.skipif(
     shutil.which("bun") is None, reason="bun (SPA build tool) is not installed"
 )
-
-EPIC_YAML = """
-pipeline: software-v1
-pipeline_version: 1
-size: epic
-steps:
-  research:
-    mode: human
-  design:
-    mode: human
-  coding:
-    mode: human
-  testing:
-    mode: human
-  review:
-    mode: human
-  delivery:
-    mode: human
-""".lstrip()
 
 
 def _run_bun(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -125,6 +105,8 @@ def test_every_element_the_shell_looks_up_exists_in_index_html():
 @needs_bun
 def test_the_app_serves_the_built_spa(tmp_path, monkeypatch):
     """`dashboard_serve.build_app` mounts `dist/` at `/` (read the shell)."""
+    from fastapi.testclient import TestClient
+
     _run_bun("run", "build")
     from tools.dashboard_serve import build_app
 
@@ -194,33 +176,13 @@ def test_terminal_status_lint_ignores_comments_and_test_modules(tmp_path):
 # --- End-to-end: endpoint payload -> view render --------------------------
 
 
-@pytest.fixture
-def live(tmp_path, monkeypatch):
-    """A dashboard wired to temp stores, plus a client over the real app."""
-    from dashboard.main import create_app
-
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-    (projects_root / "python-hello").mkdir()
-    (projects_root / "python-hello" / "project.yaml").write_text(EPIC_YAML, encoding="utf-8")
-    monkeypatch.setattr(project_manager, "PROJECTS_DIR", projects_root)
-    monkeypatch.setattr(
-        acknowledgement_store, "ACKNOWLEDGEMENTS_DIR", tmp_path / "acknowledgements"
-    )
-    core_db = tmp_path / "harness.sqlite"
-    devflow_db = tmp_path / "devflow.sqlite"
-    service = HarnessDashboardService(
-        projects_root=projects_root, core_db=core_db, devflow_db=devflow_db
-    )
-    return TestClient(create_app(service)), core_db, devflow_db
-
-
 @needs_bun
-def test_run_status_view_renders_the_endpoints_own_values(live):
-    client, _, _ = live
-    for step in ("research", "design", "coding", "testing", "review", "delivery"):
-        (client.app.state.service._projects_root / "python-hello" / "runs" / "R1" / step
-         ).mkdir(parents=True, exist_ok=True)
+def test_run_status_view_renders_the_endpoints_own_values(dashboard):
+    client = dashboard.client
+    dashboard.add_project("python-hello", EPIC_YAML)
+    dashboard.add_run("python-hello", "R1", steps=(
+        "research", "design", "coding", "testing", "review", "delivery",
+    ))
     acknowledgement_store.write(
         "python-hello", "R1", "research", "mei@team", "human", "accepted",
         acknowledgement_store.ArtifactRef(
@@ -240,20 +202,11 @@ def test_run_status_view_renders_the_endpoints_own_values(live):
 
 
 @needs_bun
-def test_benchmark_output_view_renders_the_endpoints_own_values(live):
+def test_benchmark_output_view_renders_the_endpoints_own_values(dashboard):
     """Ticket 4.7: 'the dashboard's benchmark-output view renders the same'."""
-    client, core_db, _ = live
-    import importlib.util
+    _seed_regression_fixture(dashboard.core_db)
 
-    spec = importlib.util.spec_from_file_location(
-        "_regression_fixture_loader",
-        PROJECT_ROOT / "tests/fixtures/regression-set/python-hello-4-runs/load.py",
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.load(db=core_db)
-
-    payload = client.get(
+    payload = dashboard.client.get(
         "/bench/coding", params={"tier": "trivial", "contract": "v1"}
     ).json()
     html = _render("benchmark-output", payload)
@@ -265,16 +218,16 @@ def test_benchmark_output_view_renders_the_endpoints_own_values(live):
 
 
 @needs_bun
-def test_regression_diff_view_renders_the_endpoints_own_values(live):
-    client, core_db, devflow_db = live
+def test_regression_diff_view_renders_the_endpoints_own_values(dashboard):
     from datetime import datetime, timezone
 
+    dashboard.add_project("python-hello", EPIC_YAML)
     bump = skill_bump_registry.register(
-        "bmad-build", "2.0", "1.0", registered_by="test", db=core_db
+        "bmad-build", "2.0", "1.0", registered_by="test", db=dashboard.core_db
     )
     import sqlite3
 
-    conn = sqlite3.connect(core_db)
+    conn = sqlite3.connect(dashboard.core_db)
     conn.execute("UPDATE skill_bumps SET regression_run_id = ? WHERE bump_id = ?",
                  ("REGRUN", bump.bump_id))
     conn.commit()
@@ -289,10 +242,12 @@ def test_regression_diff_view_renders_the_endpoints_own_values(live):
                 ended_at=datetime.now(timezone.utc).isoformat(),
                 outcome=outcome,
             ),
-            db=devflow_db,
+            db=dashboard.devflow_db,
         )
 
-    payload = client.get(f"/projects/python-hello/regression-diff/{bump.bump_id}").json()
+    payload = dashboard.client.get(
+        f"/projects/python-hello/regression-diff/{bump.bump_id}"
+    ).json()
     html = _render("regression-diff", payload)
 
     step = payload["steps"][0]
@@ -303,8 +258,7 @@ def test_regression_diff_view_renders_the_endpoints_own_values(live):
 
 
 @needs_bun
-def test_error_store_view_renders_the_endpoints_own_values(live):
-    client, core_db, _ = live
+def test_error_store_view_renders_the_endpoints_own_values(dashboard):
     error_store.append(
         error_store.ErrorRecord(
             record_id="rec1", project_id="python-hello", run_id="R1", step="coding",
@@ -312,11 +266,24 @@ def test_error_store_view_renders_the_endpoints_own_values(live):
             correction=(), result="fail", recorded_at="2026-01-01T00:00:00+00:00",
             retry=(),
         ),
-        db=core_db,
+        db=dashboard.core_db,
     )
-    payload = client.get("/projects/python-hello/errors").json()
+    payload = dashboard.client.get("/projects/python-hello/errors").json()
     html = _render("error-store", payload)
 
     assert "rec1" in html
     assert "assertion failed" in html
     assert "1 error(s)" in html
+
+
+def _seed_regression_fixture(core_db: Path) -> None:
+    """Load the Story 3.8 fixture into this harness's core store."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_regression_fixture_loader",
+        PROJECT_ROOT / "tests/fixtures/regression-set/python-hello-4-runs/load.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.load(db=core_db)

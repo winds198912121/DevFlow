@@ -110,3 +110,51 @@ def test_advance_reaches_rung_5_and_pauses_for_human():
     )
     assert outcome.result == "paused"
     assert outcome.next_rung is None
+
+
+def test_every_pipeline_step_yields_a_category_the_error_store_accepts():
+    """The ladder must be able to record a rung for *any* pipeline step.
+
+    Regression: the step -> category mapping was a hand-copied identity dict of
+    `STEP_ORDER`, and `delivery` is a pipeline step but *not* an Error Store
+    category. So `advance` on the last step raised `InvalidErrorCategory`
+    instead of recording the rung — the ladder was broken for exactly the step
+    most likely to need escalation. The mapping now reads the closed enum.
+    """
+    from harness.error_store import _VALID_CATEGORIES
+    from harness.workflow_controller import STEP_ORDER
+
+    for step in STEP_ORDER:
+        outcome = advance(
+            "p1", "R1", step,
+            executor_pool=[{"agent": "claude", "model": "large", "skills": []}],
+            current_executor={"agent": "human", "model": None, "skills": [],
+                              "tier": "epic"},
+        )
+        assert outcome.error_record is not None, step
+        assert outcome.error_record.category in _VALID_CATEGORIES, (step, outcome.error_record.category)
+
+
+def test_delivery_step_records_a_rung():
+    """The specific step that used to crash, asserted end-to-end."""
+    outcome = advance(
+        "p1", "R1", "delivery",
+        executor_pool=[{"agent": "claude", "model": "large", "skills": []}],
+        current_executor={"agent": "human", "model": None, "skills": [],
+                          "tier": "epic"},
+    )
+    assert outcome.next_rung == 2
+    assert outcome.error_record is not None
+    assert outcome.error_record.category in {
+        "agent", "coding", "design", "environment", "integration", "llm",
+        "requirement", "research", "review", "skill", "testing", "tool",
+    }
+
+
+def test_step_category_falls_back_for_a_name_outside_the_enum():
+    from harness.retry_ladder import _step_category
+
+    assert _step_category("delivery") == "coding"
+    assert _step_category("not-a-step") == "coding"
+    # A name that is a category passes through as itself.
+    assert _step_category("tool") == "tool"

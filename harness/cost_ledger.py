@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness.canonical import canonical_sha256
+from harness import migrate as _migrate
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -71,25 +72,7 @@ def _open_db(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_table(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS cost_ledger (
-            op_id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL,
-            run_id TEXT,
-            step TEXT,
-            tokens_in INTEGER NOT NULL DEFAULT 0,
-            tokens_out INTEGER NOT NULL DEFAULT 0,
-            duration_ms INTEGER,
-            recorded_at TEXT NOT NULL,
-            signed_hash TEXT NOT NULL
-        )
-        """.strip()
-    )
-    db.commit()
-
-
-# --- Public API ------------------------------------------------------------
+    _migrate.ensure_tables(db, "cost_ledger")
 
 
 def append(

@@ -107,3 +107,47 @@ def test_remove_with_reason_tombstones_and_drops_below_k():
     assert remove("R1", reason="bad data", removed_by="ops") is True
     with pytest.raises(BenchInsufficient):
         bench_query("coding", "trivial", "v1", k=3)
+
+
+def test_bench_mixed_metric_definitions_raise_non_comparable():
+    """A cell mixing metric definitions must refuse, not average.
+
+    Regression: `bench_query` took `metric_definition` from the first row while
+    averaging *every* row, so a cell holding runs measured two different ways
+    produced a number that was not a metric, labelled with whichever definition
+    happened to sort first. The contract axis was already guarded; the metric
+    axis was not, despite the comment claiming it was.
+    """
+    for i, definition in enumerate(["fr_passed/fr_total", "pass_rate", "fr_passed/fr_total"]):
+        add(
+            f"R{i}",
+            step="coding",
+            project_size_tier="trivial",
+            artifact_contract_version="v1",
+            metric_value=0.9,
+            metric_definition=definition,
+            added_by="cli",
+        )
+    with pytest.raises(NonComparableSet):
+        bench_query("coding", "trivial", "v1", k=1)
+    # The same holds when the caller omits the contract and the set is
+    # otherwise uniform.
+    with pytest.raises(NonComparableSet):
+        bench_query("coding", "trivial", k=1)
+
+
+def test_bench_uniform_metric_definitions_still_average():
+    """The guard must not reject a well-formed cell."""
+    for i in range(3):
+        add(
+            f"R{i}",
+            step="coding",
+            project_size_tier="trivial",
+            artifact_contract_version="v1",
+            metric_value=0.9 + i / 100,
+            metric_definition="fr_passed/fr_total",
+            added_by="cli",
+        )
+    rec = bench_query("coding", "trivial", "v1", k=3)
+    assert rec.metric_definition == "fr_passed/fr_total"
+    assert rec.metric_summary == pytest.approx((0.9 + 0.91 + 0.92) / 3)

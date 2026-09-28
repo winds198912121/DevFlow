@@ -20,6 +20,8 @@ default `ttl_seconds`; dashboards may pass longer TTLs).
 from __future__ import annotations
 
 import sqlite3
+
+from harness import migrate as _migrate
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -105,22 +107,13 @@ def _open_db(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_table(db: sqlite3.Connection) -> None:
-    """Make sure the lock table exists (the migration may not have run for
-    v1 callers that open DEFAULT_DB before migrate is invoked)."""
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS project_edit_locks (
-            project_id TEXT PRIMARY KEY,
-            acquired_at TEXT NOT NULL,
-            acquired_by TEXT NOT NULL,
-            expires_at TEXT NOT NULL
-        )
-        """.strip()
-    )
-    db.commit()
+    """Create `project_edit_locks` for callers that have not run migrations.
 
-
-# --- Acquire / Release -----------------------------------------------------
+    Production callers use `migrate.run_migrations`; this covers v1 callers
+    that open DEFAULT_DB before migrate is invoked. The DDL comes from
+    `_MIGRATIONS`, so it cannot drift from the migrated schema.
+    """
+    _migrate.ensure_tables(db, "project_edit_locks")
 
 
 def acquire(

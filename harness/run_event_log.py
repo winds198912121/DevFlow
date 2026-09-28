@@ -20,6 +20,8 @@ AD-14 binding:
 from __future__ import annotations
 
 import sqlite3
+
+from harness import migrate as _migrate
 import ulid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -88,36 +90,14 @@ def _open_db(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_table(db: sqlite3.Connection) -> None:
-    """Boot-time `CREATE TABLE IF NOT EXISTS` for test isolation.
+    """Create `run_events` for callers that have not run migrations.
 
-    Production callers use `migrate.run_migrations`; this helper mirrors
-    the migration #5 SQL for tests that haven't run migrations.
+    Production callers use `migrate.run_migrations`; this covers tests and
+    first-run paths that open a store before the harness boots. The DDL comes
+    from `_MIGRATIONS` — including `idx_run_events_run_id`, which the previous
+    hand-copied version omitted.
     """
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS run_events (
-            event_id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL,
-            run_id TEXT NOT NULL,
-            step TEXT,
-            executor_tuple TEXT NOT NULL,
-            executor_tuple_hash TEXT NOT NULL,
-            started_at TEXT NOT NULL,
-            ended_at TEXT,
-            outcome TEXT,
-            gate_mode TEXT,
-            cost_tokens_in INTEGER NOT NULL DEFAULT 0,
-            cost_tokens_out INTEGER NOT NULL DEFAULT 0,
-            confirm_id TEXT,
-            error_record_id TEXT,
-            acknowledgement_id TEXT
-        )
-        """.strip()
-    )
-    db.commit()
-
-
-# --- Public API ------------------------------------------------------------
+    _migrate.ensure_tables(db, "run_events")
 
 
 def write(event: RunEvent, *, db: Path | None = None) -> RunEvent:

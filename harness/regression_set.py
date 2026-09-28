@@ -26,6 +26,8 @@ NFR-Reliab-3 binding:
 from __future__ import annotations
 
 import sqlite3
+
+from harness import migrate as _migrate
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -105,48 +107,7 @@ def _open_db(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_table(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS regression_set_runs (
-            run_event_id TEXT PRIMARY KEY,
-            step TEXT NOT NULL,
-            project_size_tier TEXT NOT NULL,
-            artifact_contract_version TEXT NOT NULL,
-            metric_value REAL NOT NULL,
-            metric_definition TEXT NOT NULL,
-            added_at TEXT NOT NULL,
-            removed_at TEXT,
-            added_by TEXT NOT NULL
-        )
-        """.strip()
-    )
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS benchmark_runs (
-            benchmark_id TEXT PRIMARY KEY,
-            step TEXT NOT NULL,
-            project_size_tier TEXT NOT NULL,
-            artifact_contract_version TEXT,
-            metric_definition TEXT NOT NULL,
-            computed_at TEXT NOT NULL,
-            result_json TEXT NOT NULL
-        )
-        """.strip()
-    )
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS regression_set_removals (
-            removed_run_id TEXT PRIMARY KEY,
-            removed_at TEXT NOT NULL,
-            removed_by TEXT NOT NULL,
-            reason TEXT NOT NULL
-        )
-        """.strip()
-    )
-    db.commit()
-
-
-# --- Public API ------------------------------------------------------------
+    _migrate.ensure_tables(db, "regression_set_runs", "benchmark_runs", "regression_set_removals")
 
 
 def add(
@@ -248,13 +209,10 @@ def bench_query(
                 """.strip(),
                 (step, project_size_tier, artifact_contract_version),
             ).fetchall()
-            metric_def = "see-row"
-            if rows:
-                metric_def = rows[0][5]
         else:
-            # Mixed contract versions: refuse (NonComparableSet) unless
-            # all rows happen to share a metric_definition (degenerate
-            # case the caller can re-query explicitly with the version).
+            # Mixed contract versions: refuse (NonComparableSet) unless all rows
+            # happen to share a metric_definition (degenerate case the caller can
+            # re-query explicitly with the version).
             rows = conn.execute(
                 """
                 SELECT run_event_id, step, project_size_tier, artifact_contract_version,
@@ -272,12 +230,19 @@ def bench_query(
                     f"mixed contract versions {distinct_contracts}; "
                     "specify artifact_contract_version explicitly"
                 )
-            if not rows:
-                metric_def = ""
-            else:
-                metric_def = rows[0][5]
     finally:
         conn.close()
+    # Comparability has two axes. The contract axis is checked above; the metric
+    # axis must be too, because a mean over runs measured different ways is not a
+    # metric — it is an average of unrelated numbers, and `metric_definition`
+    # would name whichever row happened to sort first.
+    distinct_metrics = {r[5] for r in rows}
+    if len(distinct_metrics) > 1:
+        raise NonComparableSet(
+            f"mixed metric definitions {sorted(distinct_metrics)} for "
+            f"step={step} tier={project_size_tier} "
+            f"contract={artifact_contract_version}"
+        )
     if len(rows) < k:
         raise BenchInsufficient(
             f"comparable_run_count={len(rows)} < k={k} for step={step} "
@@ -292,7 +257,7 @@ def bench_query(
             artifact_contract_version if artifact_contract_version is not None
             else (rows[0][3] if rows else "")
         ),
-        metric_definition=metric_def,
+        metric_definition=rows[0][5] if rows else "",
         contributing_runs=contributing,
         metric_summary=metric_summary,
     )

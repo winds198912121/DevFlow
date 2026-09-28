@@ -15,6 +15,7 @@ migration's `sql_hash` so the runner can detect drift on every re-run.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -419,6 +420,67 @@ def run_migrations(db: sqlite3.Connection) -> None:
         )
         db.commit()
         current = version
+
+
+# --- Table bootstrap for un-migrated databases -----------------------------
+
+#: Every migration body is exactly one `CREATE TABLE` or `CREATE INDEX`
+#: (asserted by `tests/test_migrate.py`), which is what lets the statements be
+#: attributed to a table by a single pattern match.
+_CREATE_TABLE_RE = re.compile(r"CREATE TABLE (?:IF NOT EXISTS )?(?P<table>\w+)", re.IGNORECASE)
+_CREATE_INDEX_RE = re.compile(
+    r"CREATE INDEX (?:IF NOT EXISTS )?\w+\s+ON\s+(?P<table>\w+)", re.IGNORECASE
+)
+
+
+def _statements_by_table() -> dict[str, list[str]]:
+    """`table -> [DDL, ...]`, derived from `_MIGRATIONS` — the one definition.
+
+    Table DDL is normalised to `CREATE TABLE IF NOT EXISTS` so it can be applied
+    to a database that already has the table.
+    """
+    by_table: dict[str, list[str]] = {}
+    for _version, _description, sql in _MIGRATIONS:
+        table_match = _CREATE_TABLE_RE.search(sql)
+        if table_match:
+            table = table_match.group("table")
+            if table == "_migrations":
+                continue  # owned by run_migrations alone
+            by_table.setdefault(table, []).append(
+                _CREATE_TABLE_RE.sub(f"CREATE TABLE IF NOT EXISTS {table}", sql, count=1)
+            )
+            continue
+        index_match = _CREATE_INDEX_RE.search(sql)
+        if index_match:
+            by_table.setdefault(index_match.group("table"), []).append(sql)
+    return by_table
+
+
+def ensure_tables(db: sqlite3.Connection, *names: str) -> None:
+    """Create `names` (and their indexes) without recording a migration version.
+
+    Some callers open a store against a database that `run_migrations` has not
+    touched — tests, `harness serve --demo`, and any CLI command that opens a
+    store before the harness boots. Those callers need the table to exist, but
+    they must not claim a schema version they did not apply.
+
+    Each store used to carry its own hand-copied `CREATE TABLE IF NOT EXISTS`
+    for this. All 13 were byte-identical duplicates of a migration, and one had
+    already drifted: `run_event_log`'s copy omitted `idx_run_events_run_id`, so
+    a non-migrated database was silently missing the index `list_for_run`
+    depends on. Reading from `_MIGRATIONS` makes that class of drift impossible.
+
+    Raises `ValueError` for a name no migration defines, so a typo surfaces at
+    the call site instead of creating nothing and failing later on first use.
+    """
+    by_table = _statements_by_table()
+    unknown = sorted(name for name in names if name not in by_table)
+    if unknown:
+        raise ValueError(f"ensure_tables: no migration defines {unknown}")
+    for name in names:
+        for sql in by_table[name]:
+            db.execute(sql)
+    db.commit()
 
 
 # --- Default DB connection helper -----------------------------------------

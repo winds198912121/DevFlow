@@ -19,6 +19,8 @@ in a SQLite table at `var/harness.sqlite` (table `cost_guard_pauses`).
 from __future__ import annotations
 
 import sqlite3
+
+from harness import migrate as _migrate
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -58,23 +60,7 @@ def _open_db(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_table(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS cost_guard_overrides (
-            project_id TEXT PRIMARY KEY,
-            ceiling INTEGER NOT NULL
-        )
-        """.strip()
-    )
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS cost_guard_pauses (
-            project_id TEXT PRIMARY KEY,
-            paused_at TEXT NOT NULL
-        )
-        """.strip()
-    )
-    db.commit()
+    _migrate.ensure_tables(db, "cost_guard_overrides", "cost_guard_pauses")
 
 
 def get_ceiling(project_id: str, tier: str, *, db: Path | None = None) -> int:

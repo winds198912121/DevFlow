@@ -61,6 +61,11 @@ _ERROR_FILTER_KEYS = frozenset(
 _PASS_OUTCOMES = frozenset({"pass"})
 _FAIL_OUTCOMES = frozenset({"fail", "error"})
 
+#: The AD-18 lock refusal. Both write paths that touch the project edit lock
+#: (`swap_executor` and `project_edit_lock`) raise it, and the SPA branches on
+#: the string, so the two sites must not be allowed to drift apart.
+_PROJECT_EDIT_LOCK_HELD = "project_edit_lock_held"
+
 
 class HarnessDashboardService:
     """The dashboard read model + the seven AD-21 write paths."""
@@ -296,7 +301,7 @@ class HarnessDashboardService:
             )
         except executor_swap.SwapUnderLockHeld as e:
             raise DashboardRefusal(
-                "project_edit_lock_held", status=409, message=str(e)
+                _PROJECT_EDIT_LOCK_HELD, status=409, message=str(e)
             ) from e
         except executor_swap.SwapRefused as e:
             raise DashboardRefusal("swap_refused", status=400, message=str(e)) from e
@@ -366,7 +371,7 @@ class HarnessDashboardService:
             project_edit_lock.acquire(project_id, edited_by, db=self._devflow_db)
         except project_edit_lock.LockHeld as e:
             raise DashboardRefusal(
-                "project_edit_lock_held", status=409, message=str(e)
+                _PROJECT_EDIT_LOCK_HELD, status=409, message=str(e)
             ) from e
         try:
             prev_yaml_hash = canonical_sha256(target.read_text(encoding="utf-8"))

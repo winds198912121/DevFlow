@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 import pytest
@@ -202,3 +203,109 @@ def test_default_db_runs_migrations_on_open(tmp_path):
         assert count == len(_MIGRATIONS)
     finally:
         db.close()
+
+
+# --- ensure_tables: the un-migrated bootstrap path -------------------------
+
+
+def _table_schema(db: sqlite3.Connection, table: str) -> dict:
+    """Full shape of `table`: normalised DDL plus its indexes."""
+    ddl = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()[0]
+    indexes = db.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? "
+        "AND sql IS NOT NULL ORDER BY name",
+        (table,),
+    ).fetchall()
+    columns = db.execute(f"PRAGMA table_info({table})").fetchall()
+    return {
+        # `IF NOT EXISTS` is the only permitted textual difference between the
+        # migrated DDL and the bootstrap DDL; everything else must match.
+        "ddl": " ".join(ddl.replace("IF NOT EXISTS ", "").split()),
+        "columns": [(c[1], c[2], c[3], c[4], c[5]) for c in columns],
+        "indexes": [(n, " ".join(s.split())) for n, s in indexes],
+    }
+
+
+def test_ensure_tables_produces_the_migrated_schema():
+    """Both schema paths must agree, table for table.
+
+    Each store carries an `_ensure_table` for callers that never ran
+    `run_migrations` (tests, `serve --demo`). Those helpers used to hand-copy
+    the DDL, and `run_event_log`'s copy had already drifted: it omitted
+    `idx_run_events_run_id`, so a bootstrapped database was silently missing an
+    index `list_for_run` relies on. Both paths now read `_MIGRATIONS`; this
+    pins it, so a future migration cannot diverge from the bootstrap.
+    """
+    from harness.migrate import _MIGRATIONS, ensure_tables
+
+    migrated = sqlite3.connect(":memory:")
+    bootstrapped = sqlite3.connect(":memory:")
+    try:
+        run_migrations(migrated)
+        tables = [
+            m.group(1)
+            for _v, _d, sql in _MIGRATIONS
+            if (m := re.search(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+)", sql))
+            and m.group(1) != "_migrations"
+        ]
+        assert set(tables) == {
+            "artifacts", "project_edit_locks", "project_yaml_edits", "run_events",
+            "error_records", "regression_set_runs", "benchmark_runs",
+            "regression_set_removals", "skill_bumps", "cost_ledger",
+            "cost_guard_overrides", "cost_guard_pauses", "herdr_mirror_events",
+            "herdr_mirror_position",
+        }, tables
+        ensure_tables(bootstrapped, *tables)
+
+        for table in tables:
+            assert _table_schema(bootstrapped, table) == _table_schema(migrated, table), (
+                f"{table}: bootstrap schema differs from the migrated schema"
+            )
+    finally:
+        migrated.close()
+        bootstrapped.close()
+
+
+def test_ensure_tables_indexes_the_tables_that_need_them():
+    """The specific drift the refactor fixed, asserted directly."""
+    from harness.migrate import ensure_tables
+
+    db = sqlite3.connect(":memory:")
+    try:
+        ensure_tables(db, "run_events")
+        names = {r[0] for r in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='run_events'"
+        )}
+        assert "idx_run_events_run_id" in names
+    finally:
+        db.close()
+
+
+def test_ensure_tables_rejects_an_unknown_table():
+    """A typo must fail at the call site, not create nothing and fail later."""
+    from harness.migrate import ensure_tables
+
+    db = sqlite3.connect(":memory:")
+    try:
+        with pytest.raises(ValueError, match="no migration defines"):
+            ensure_tables(db, "not_a_table")
+    finally:
+        db.close()
+
+
+def test_every_migration_body_is_a_single_create_statement():
+    """`ensure_tables` attributes statements to tables by matching one CREATE.
+
+    If a migration ever holds several statements, or an ALTER, the attribution
+    would silently drop the extras from the bootstrap path.
+    """
+    from harness.migrate import _MIGRATIONS
+
+    for version, description, sql in _MIGRATIONS:
+        stripped = sql.strip()
+        assert stripped.startswith(("CREATE TABLE", "CREATE INDEX")), (
+            f"migration {version} ({description}) is not a CREATE: {stripped[:40]!r}"
+        )
+        assert ";" not in stripped, f"migration {version} holds multiple statements"

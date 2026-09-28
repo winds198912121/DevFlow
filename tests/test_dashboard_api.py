@@ -3,12 +3,11 @@
 Almost every test drives the real FastAPI app through `TestClient` rather than
 calling `HarnessDashboardService` directly: the ACs are stated in terms of the
 HTTP surface (status codes, 401 on unsigned writes, refusal codes), and the
-transport is where the signature gate lives. A handful of tests reach for the
-service object directly to prove the port is usable without HTTP.
+transport is where the signature gate lives. A few tests reach for the service
+object directly to prove the port is usable without HTTP.
 
-Each test builds its own stores under `tmp_path`. The dashboard must never be
-tested against the real `var/` tree: `serve --demo` and the CLI share it, so a
-test that wrote there would corrupt unrelated state.
+The isolated-store wiring lives in `tests/conftest.py` (`dashboard` fixture),
+shared with the SPA suite.
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from harness import (
     acknowledgement_store,
@@ -29,34 +27,12 @@ from harness import (
     signing,
     skill_bump_registry,
 )
-from harness.dashboard_service import HarnessDashboardService
+from harness.workflow_controller import STEP_ORDER
+from tests.conftest import EPIC_YAML, TRIVIAL_YAML
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-FIXTURE_PROJECT = Path("tests/fixtures/sample-projects/python-hello/project.yaml")
 REGRESSION_FIXTURE = Path("tests/fixtures/regression-set/python-hello-4-runs/load.py")
 
-TRIVIAL_YAML = """
-pipeline: software-v1
-pipeline_version: 1
-size: trivial
-steps:
-  research:
-    mode: human
-  design:
-    mode: human
-  coding:
-    mode: human
-  testing:
-    mode: human
-  review:
-    mode: human
-  delivery:
-    mode: human
-""".lstrip()
-
-EPIC_YAML = TRIVIAL_YAML.replace("size: trivial", "size: epic")
-
-STEP_ORDER = ("research", "design", "coding", "testing", "review", "delivery")
 AD21_WRITE_ROUTES = frozenset(
     {
         ("POST", "/acknowledgements"),
@@ -70,61 +46,10 @@ AD21_WRITE_ROUTES = frozenset(
 )
 
 
-# --- Fixtures --------------------------------------------------------------
-
-
-class Dashboard:
-    """A wired dashboard over isolated stores."""
-
-    def __init__(self, client: TestClient, service: HarnessDashboardService,
-                 projects_root: Path, core_db: Path, devflow_db: Path) -> None:
-        self.client = client
-        self.service = service
-        self.projects_root = projects_root
-        self.core_db = core_db
-        self.devflow_db = devflow_db
-
-    def add_project(self, project_id: str, yaml_text: str = TRIVIAL_YAML) -> None:
-        target = self.projects_root / project_id
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "project.yaml").write_text(yaml_text, encoding="utf-8")
-
-    def add_run(self, project_id: str, run_id: str, steps: tuple[str, ...] = ("research",)) -> None:
-        for step in steps:
-            (self.projects_root / project_id / "runs" / run_id / step).mkdir(
-                parents=True, exist_ok=True
-            )
-
-    def post(self, url: str, payload: dict, *, sign: bool = True,
-             signature: str | None = None) -> object:
-        headers = {}
-        if signature is not None:
-            headers["X-Harness-Signature"] = signature
-        elif sign:
-            headers["X-Harness-Signature"] = signing.sign(payload).hex()
-        return self.client.post(url, json=payload, headers=headers)
-
-
 @pytest.fixture
-def dash(tmp_path, monkeypatch) -> Dashboard:
-    from dashboard.main import create_app
-
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-    # `project_manager` resolves project YAML through a module global, so the
-    # read model's size lookup only sees the temp tree if it is patched too.
-    monkeypatch.setattr(project_manager, "PROJECTS_DIR", projects_root)
-    # The Acknowledgement store is filesystem-backed with a module-global root.
-    monkeypatch.setattr(
-        acknowledgement_store, "ACKNOWLEDGEMENTS_DIR", tmp_path / "acknowledgements"
-    )
-    core_db = tmp_path / "harness.sqlite"
-    devflow_db = tmp_path / "devflow.sqlite"
-    service = HarnessDashboardService(
-        projects_root=projects_root, core_db=core_db, devflow_db=devflow_db
-    )
-    client = TestClient(create_app(service))
-    return Dashboard(client, service, projects_root, core_db, devflow_db)
+def dash(dashboard):
+    """Local alias for the shared harness (these tests read better as `dash`)."""
+    return dashboard
 
 
 # --- Story 4.3: read endpoints --------------------------------------------

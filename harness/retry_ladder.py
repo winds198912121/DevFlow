@@ -24,9 +24,17 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
-from harness.error_store import ErrorRecord, append as _es_append
+from harness.error_store import (
+    ErrorCategory,
+    ErrorRecord,
+    append as _es_append,
+)
+
+#: The closed AD-4 category enum, read from the `Literal` that defines it so
+#: there is no second copy of the list to keep in sync.
+_CATEGORIES = frozenset(get_args(ErrorCategory))
 from harness.regression_set import bench_query as _bench
 from harness.skill_bump_registry import (
     find_promoted as _find_promoted,
@@ -64,19 +72,23 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_STEP_CATEGORY_MAP = {
-    "research": "research",
-    "design": "design",
-    "coding": "coding",
-    "testing": "testing",
-    "review": "review",
-    "delivery": "delivery",
-}
 
 
 def _step_category(step: str) -> str:
-    """Map a step name to the closed error-category enum (or 'coding' fallback)."""
-    return _STEP_CATEGORY_MAP.get(step, "coding")
+    """Return a member of the Error Store's closed category enum for `step`.
+
+    The six pipeline steps are themselves valid categories, so this used to be a
+    six-entry identity dict — a third copy of the step list, after
+    `workflow_controller.STEP_ORDER` and `error_store.ErrorCategory`, free to
+    drift from either. It now asks the enum, which has two consequences worth
+    stating: the result is always a category `error_store.append` will accept,
+    and a step name that happens to be a category (say `agent` or `tool`) is
+    reported as itself rather than collapsed.
+
+    `coding` is the fallback for a name the enum does not know — the broadest
+    category, and the previous default.
+    """
+    return step if step in _CATEGORIES else "coding"
 
 
 def _open_db(db: Path) -> sqlite3.Connection:

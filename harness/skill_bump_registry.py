@@ -22,13 +22,14 @@ AD-22 binding: the registry is the only writer path; two CLI verbs
 from __future__ import annotations
 
 import sqlite3
+
+from harness import migrate as _migrate
 import ulid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from harness.canonical import canonical_sha256
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -88,25 +89,7 @@ def _open_db(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_table(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS skill_bumps (
-            bump_id TEXT PRIMARY KEY,
-            skill_name TEXT NOT NULL,
-            new_version TEXT NOT NULL,
-            previous_version TEXT NOT NULL,
-            state TEXT NOT NULL,
-            registered_at TEXT NOT NULL,
-            promoted_at TEXT,
-            promoted_by TEXT,
-            regression_run_id TEXT
-        )
-        """.strip()
-    )
-    db.commit()
-
-
-# --- Public API ------------------------------------------------------------
+    _migrate.ensure_tables(db, "skill_bumps")
 
 
 def register(

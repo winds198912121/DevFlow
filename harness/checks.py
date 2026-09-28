@@ -10,7 +10,6 @@ key's existence is itself an invariant).
 from __future__ import annotations
 
 import os
-import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass

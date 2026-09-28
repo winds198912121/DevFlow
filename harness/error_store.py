@@ -28,6 +28,7 @@ from typing import Literal
 import ulid
 
 from harness.canonical import canonical_sha256
+from harness import migrate as _migrate
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -137,31 +138,7 @@ def _open_db(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_table(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS error_records (
-            record_id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL,
-            run_id TEXT NOT NULL,
-            step TEXT NOT NULL,
-            attempt INTEGER NOT NULL,
-            category TEXT NOT NULL,
-            root_cause_json TEXT NOT NULL,
-            correction_json TEXT NOT NULL,
-            retry_json TEXT NOT NULL,
-            result TEXT NOT NULL,
-            recorded_at TEXT NOT NULL,
-            hash TEXT NOT NULL
-        )
-        """.strip()
-    )
-    db.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_error_records_lookup
-            ON error_records (project_id, run_id, step)
-        """.strip()
-    )
-    db.commit()
+    _migrate.ensure_tables(db, "error_records")
 
 
 def _validate_category(category: str) -> None:
@@ -248,31 +225,13 @@ def list_for(
     *,
     db: Path | None = None,
 ) -> tuple[ErrorRecord, ...]:
-    db_path = db or DEFAULT_DB
-    conn = _open_db(db_path)
-    try:
-        _ensure_table(conn)
-        if step is None:
-            rows = conn.execute(
-                "SELECT record_id, project_id, run_id, step, attempt, category, "
-                "root_cause_json, correction_json, retry_json, result, "
-                "recorded_at, hash FROM error_records "
-                "WHERE project_id = ? AND run_id = ? "
-                "ORDER BY record_id ASC",
-                (project_id, run_id),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT record_id, project_id, run_id, step, attempt, category, "
-                "root_cause_json, correction_json, retry_json, result, "
-                "recorded_at, hash FROM error_records "
-                "WHERE project_id = ? AND run_id = ? AND step = ? "
-                "ORDER BY record_id ASC",
-                (project_id, run_id, step),
-            ).fetchall()
-    finally:
-        conn.close()
-    return tuple(ErrorRecord.from_row(r) for r in rows)
+    """Run-scoped reader. Delegates to `query`, which owns the SQL.
+
+    Kept as a named entry point because callers read better asking for "this
+    run's errors"; it used to carry two near-identical SELECT statements of its
+    own, which is how the column list would eventually drift from `query`'s.
+    """
+    return query(project_id, run_id=run_id, step=step, db=db)
 
 
 def query(

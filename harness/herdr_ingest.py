@@ -27,11 +27,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+
+from harness import migrate as _migrate
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from harness.canonical import canonical_sha256
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -64,27 +65,7 @@ def _open_mirror(db: Path) -> sqlite3.Connection:
 
 
 def _ensure_tables(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS herdr_mirror_events (
-            event_id TEXT PRIMARY KEY,
-            project_id TEXT,
-            step TEXT,
-            event_type TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
-            recorded_at TEXT NOT NULL
-        )
-        """.strip()
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS herdr_mirror_position (
-            stream_path TEXT PRIMARY KEY,
-            byte_offset INTEGER NOT NULL
-        )
-        """.strip()
-    )
-    conn.commit()
+    _migrate.ensure_tables(conn, "herdr_mirror_events", "herdr_mirror_position")
 
 
 def _read_position(conn: sqlite3.Connection, stream_path: Path) -> int:
@@ -129,6 +110,7 @@ def tail(
         _ensure_tables(conn)
         last = _read_position(conn, stream)
         ingested = 0
+        malformed: MalformedHerdrEvent | None = None
         with stream.open("rb") as fh:
             fh.seek(last)
             while True:
@@ -138,36 +120,51 @@ def tail(
                 try:
                     obj = json.loads(line_bytes.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError) as e:
-                    raise MalformedHerdrEvent(
+                    malformed = MalformedHerdrEvent(
                         f"herdr line at offset {last} malformed: {e}"
-                    ) from e
-                if not isinstance(obj, dict) or "event_id" not in obj:
-                    raise MalformedHerdrEvent(
-                        f"herdr line at offset {last} missing event_id"
                     )
-                payload_json = json.dumps(obj, sort_keys=True)
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO herdr_mirror_events (
-                        event_id, project_id, step, event_type,
-                        payload_json, recorded_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """.strip(),
-                    (
-                        obj["event_id"],
-                        obj.get("project_id"),
-                        obj.get("step"),
-                        obj.get("event_type", "unknown"),
-                        payload_json,
-                        obj.get("recorded_at", ""),
-                    ),
-                )
-                ingested += 1
+                else:
+                    if not isinstance(obj, dict) or "event_id" not in obj:
+                        malformed = MalformedHerdrEvent(
+                            f"herdr line at offset {last} missing event_id"
+                        )
+                    else:
+                        payload_json = json.dumps(obj, sort_keys=True)
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO herdr_mirror_events (
+                                event_id, project_id, step, event_type,
+                                payload_json, recorded_at
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            """.strip(),
+                            (
+                                obj["event_id"],
+                                obj.get("project_id"),
+                                obj.get("step"),
+                                obj.get("event_type", "unknown"),
+                                payload_json,
+                                obj.get("recorded_at", ""),
+                            ),
+                        )
+                        ingested += 1
+                # The offset advances past every consumed line, including a
+                # rejected one. Advancing only on success meant the position
+                # never moved past a malformed line, so every later tail()
+                # re-read the same bytes and raised forever — the ingest was
+                # permanently stuck behind one bad line, the exact failure
+                # Story 4.8's "does not block subsequent events" forbids.
                 last += len(line_bytes)
-        _write_position(conn, stream, last)
-        conn.commit()
+                if malformed is not None:
+                    break
+            # Commit before surfacing the rejection so the events read before
+            # the bad line survive it, and the stored offset matches what was
+            # actually consumed.
+            _write_position(conn, stream, last)
+            conn.commit()
     finally:
         conn.close()
+    if malformed is not None:
+        raise malformed
     return ingested
 
 
