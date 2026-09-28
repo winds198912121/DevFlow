@@ -1,6 +1,6 @@
 # DevFlow Harness — 使用手册
 
-> GitHub：**https://github.com/winds198912121/DevFlow**（branch: `master`）
+> GitHub：**https://github.com/winds198912121/DevFlow**（branch: `main`，仓库默认分支）
 > 本地路径：`/Users/winds/Downloads/DevFlow`
 
 ---
