@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="flow-failure-title flow-failure-desc"
+     viewBox="0 0 960 520" width="100%" style="max-width:960px">
+  <title id="flow-failure-title">失败路径与重试阶梯</title>
+  <desc id="flow-failure-desc">步骤失败先append 一条只增不改的 Error Store 记录，然后逐级升档：rung 1 同执行者重试，rung 2 换 LLM，rung 3 换 agent，rung 4 用已晋级 skill，rung 5 交回人工并暂停。</desc>
+  <defs>
+  <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#5c5752"/>
+  </marker>
+  <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#b86b52"/>
+  </marker>
+  <marker id="arrow-soft" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#8b847d"/>
+  </marker>
+</defs>
+  <rect width="100%" height="100%" fill="#f3f2f0"/>
+<rect x="40" y="200" width="180" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="40" y="200" width="180" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="48" y="206" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="70" y="215" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">FAIL</text>
+<text x="130.0" y="234" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">步骤失败</text>
+<text x="130.0" y="252" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">adapter 返回 failed</text>
+<rect x="272" y="200" width="200" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="272" y="200" width="200" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<rect x="280" y="206" width="44" height="12" rx="2" fill="transparent" stroke="#252f3d" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="302" y="215" fill="#252f3d" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">AD-4</text>
+<text x="372.0" y="234" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">Error Store append</text>
+<text x="372.0" y="252" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">只增不改 · AD-4</text>
+<rect x="560" y="40" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="40" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="63" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 1 · 同 agent 同 LLM</text>
+<text x="720.0" y="81" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">重试同一执行者</text>
+<rect x="560" y="120" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="120" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="143" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 2 · 同 agent 换 LLM</text>
+<text x="720.0" y="161" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">换一个模型再试</text>
+<rect x="560" y="200" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="200" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="223" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 3 · 换 agent + 更强 LLM</text>
+<text x="720.0" y="241" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">查 bench 推荐</text>
+<rect x="560" y="280" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="280" width="320" height="56" rx="6" fill="#ffffff" stroke="#252f3d" stroke-width="1"/>
+<text x="720.0" y="303" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 4 · 用 promoted skill</text>
+<text x="720.0" y="321" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">AD-6 skill 晋级</text>
+<rect x="560" y="392" width="320" height="56" rx="6" fill="#f3f2f0"/>
+<rect x="560" y="392" width="320" height="56" rx="6" fill="#ebe7e4" stroke="#5c5752" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="568" y="398" width="44" height="12" rx="2" fill="transparent" stroke="#5c5752" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="590" y="407" fill="#5c5752" fill-opacity="0.85" font-size="7" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle" letter-spacing="0.08em">HITL</text>
+<text x="720.0" y="426" fill="#252f3d" font-size="12" font-weight="600" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">rung 5 · 人工介入</text>
+<text x="720.0" y="444" fill="#5c5752" font-size="9" font-weight="400" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="middle">暂停 · 不再自动</text>
+<path d="M 220 228 L 272 228" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 130 200 V 76 Q 130 68 138 68 H 560" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 96 L 720 120" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 176 L 720 200" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 256 L 720 280" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<path d="M 720 336 L 720 392" fill="none" stroke="#5c5752" stroke-width="1.1" marker-end="url(#arrow)"/>
+<rect x="740" y="99" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="108" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+<rect x="740" y="179" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="188" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+<rect x="740" y="259" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="268" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+<rect x="740" y="355" width="32" height="12" rx="2" fill="#f3f2f0"/><text x="744" y="364" fill="#8b847d" font-size="8" font-family="'Commit Mono', ui-monospace, 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', monospace" text-anchor="start" letter-spacing="0.06em">仍失败</text>
+</svg>
